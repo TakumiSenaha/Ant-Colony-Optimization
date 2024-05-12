@@ -1,0 +1,6 @@
+result.json
+.mypy_cache
+__pycache__
+*.SVG
+*.txt
+.DS_Store
