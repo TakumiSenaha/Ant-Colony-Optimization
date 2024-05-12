@@ -398,13 +398,13 @@ if __name__ == "__main__":
     show_node_info(node_list)
 
     print(interest_log)
-    f = open("./log_interest.csv", "a", newline = "")
+    f = open("./simulation_result/log_interest.csv", "a", newline = "")
     writer = csv.writer(f)
     writer.writerow(interest_log)
     f.close()
 
     print(rand_log)
-    f = open("./log_rand.csv", "a", newline = "")
+    f = open("./simulation_result/log_rand.csv", "a", newline = "")
     writer = csv.writer(f)
     writer.writerow(rand_log)
     f.close()
