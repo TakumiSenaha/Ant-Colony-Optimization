@@ -16,7 +16,7 @@ def volitile_pheromone_based_on_dimension_and_width(self: Network, params: Param
     for node in self.nodes:
         for link in node.neighbors.values():
             degree = len(node.neighbors)
-            floor = params.pheromone_min * 3 * degree
+            floor = params.pheromone_min * 3 / degree
             rate = 0.89 + (link.width / 1000)
             tmp = math.floor(link.pheromone * rate)
             if tmp < floor:
