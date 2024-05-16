@@ -4,6 +4,7 @@
 import math
 import random
 import csv
+from typing import List
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -63,6 +64,20 @@ def volatilize(node_list:list[Node]) -> None:
         node.pheromone[i] = MIN_F
       else:
         node.pheromone[i] = new_pheronone
+
+def variable_volatilize(node_list: List[Node]) -> None:
+  for node in node_list:
+    for i in range(len(node.pheromone)):
+      degree = len(node.connection)
+      rate = 0.89 + (node.width[i] / 1000)
+      new_pheromone = math.floor(node.pheromone[i] * rate)
+      min_pheromone = 300 / degree
+      if new_pheromone <= min_pheromone:
+        node.pheromone[i] = min_pheromone
+      elif new_pheromone > MAX_F:
+        node.pheromone[i] = MAX_F
+      else:
+        node.pheromone[i] = new_pheromone
 
 def update_pheromone(ant:Ant, node_list:list[Node]) -> None:
   # 目的ノードに到着したantによるフェロモンの付加(片側)
@@ -337,6 +352,21 @@ def create_graph(node_num:int, edge_num:int, hop:int, width:int) -> list[Node]:
 
   return node_list
 
+def create_ba_model(node_num: int, edge_num: int) -> List[Node]:
+  # BAモデルのネットワークを作成し、Nodeオブジェクトが含まれたlistを返す。
+  node_list = [Node([], [], []) for _ in range(node_num)]
+  G = nx.barabasi_albert_graph(node_num, edge_num)
+  for edge in G.edges():
+      a, b = edge
+      width = random.randint(1, 10) * 10
+      node_list[a].connection.append(b)
+      node_list[a].pheromone.append(MIN_F)
+      node_list[a].width.append(width)
+      node_list[b].connection.append(a)
+      node_list[b].pheromone.append(MIN_F)
+      node_list[b].width.append(width)
+  return node_list
+
 #-------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -357,10 +387,7 @@ if __name__ == "__main__":
     rand_log:      list[int] = [] # Randのログ用リスト
 
     
-    node_list = [Node([1,2],[MIN_F,MIN_F],[100,1000]),
-                  Node([0,3],[MIN_F,MIN_F],[10,100]),
-                  Node([0,3],[MIN_F,MIN_F],[10,10]),
-                  Node([1,2],[MIN_F,MIN_F],[10,10])]
+    node_list = create_ba_model(NODE_NUM, EDGE_NUM)
 
     for gen in range(GENERATION):
 
@@ -374,7 +401,7 @@ if __name__ == "__main__":
         ant_next_node(ant_list, node_list)
 
       # 揮発フェーズ
-      volatilize(node_list)
+      variable_volatilize(node_list)
       
       # Interestによる評価フェーズ
       # Interestを配置
