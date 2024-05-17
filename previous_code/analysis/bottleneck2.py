@@ -9,21 +9,21 @@ import matplotlib.pyplot as plt
 try:
     # データベースに接続
     conn = psycopg2.connect(
-        dbname="simulation",
-        user="asaken_n40",
-        password="asaken_N40",
+        dbname="test_db",
+        user="user",
+        password="password",
         host="localhost",
         port="5432"
     )
     # カーソルを作成
     cur = conn.cursor()
 
-    parameter_id = 482
+    parameter_id = 1
     # 縦列→世代(昇順)、横行→widthを降順(100,90,80...0)、要素→その世代におけるそのwidthの回数
-    width_counts_matrix = [[0]*11 for _ in range(100)]
+    width_counts_matrix = [[0]*11 for _ in range(100000)]
 
     # 各世代のwidthの出現回数を取得
-    for generation in range(0, 100):
+    for generation in range(0, 100000):
         for bottleneck in range(0, 101, 10):
             # SQLクエリを実行
             cur.execute(f"""SELECT Count(interests.routebottleneck)

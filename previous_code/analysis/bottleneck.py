@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 try:
     # データベースに接続
     conn = psycopg2.connect(
-        dbname="simulation",
-        user="asaken_n40",
-        password="asaken_N40",
+        dbname="test_db",
+        user="user",
+        password="password",
         host="localhost",
         port="5432"
     )
@@ -16,7 +16,7 @@ try:
     # カーソルを作成
     cur = conn.cursor()
 
-    parameter_id = 145
+    parameter_id = 1
     bottleneck_list = []
 
     # 縦列→世代(昇順)・横行→各widthの割合を降順(100,90,80...0)

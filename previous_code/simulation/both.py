@@ -16,7 +16,7 @@ def volitile_pheromone_based_on_dimension_and_width(self: Network, params: Param
     for node in self.nodes:
         for link in node.neighbors.values():
             degree = len(node.neighbors)
-            floor = params.pheromone_min * 3 / degree
+            floor = (params.pheromone_min * 3) // degree
             rate = 0.89 + (link.width / 1000)
             tmp = math.floor(link.pheromone * rate)
             if tmp < floor:
@@ -37,8 +37,7 @@ def main(params: Params):
     # ネットワーク作成後にset_pheromone_based_on_dimension()を実行する手順を追加
     try:
         # DBLoggerインスタンス作成
-        dblogger = DBLogger("asaken_n40", "asaken_N40",
-                            "localhost", "simulation", "5432")
+        dblogger = DBLogger("user", "password", "localhost", "test_db", "5432")
 
         dblogger.connect()
 
@@ -141,7 +140,7 @@ if __name__ == "__main__":
                     pheromone_max=2**20,
                     ttl=100,
                     bata=1,
-                    generation_limit=100,
+                    generation_limit=30000,
                     simulation_count=100)
 
     with Pool() as p:

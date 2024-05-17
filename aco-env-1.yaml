@@ -24,6 +24,7 @@ dependencies:
   - icu=73.2=hc8870d7_0
   - jpeg=9e=h80987f9_1
   - kiwisolver=1.4.4=py311h313beb8_0
+  - krb5=1.20.1=hf3e1bf2_1
   - lcms2=2.12=hba8e193_0
   - lerc=3.0=hc377ac9_0
   - libbrotlicommon=1.0.9=h80987f9_8
@@ -31,6 +32,7 @@ dependencies:
   - libbrotlienc=1.0.9=h80987f9_8
   - libcxx=17.0.6=h5f092b4_0
   - libdeflate=1.17=h80987f9_1
+  - libedit=3.1.20230828=h80987f9_0
   - libexpat=2.6.2=hebf3989_0
   - libffi=3.4.4=hca03da5_1
   - libgfortran=5.0.0=11_3_0_hca03da5_28
@@ -40,6 +42,7 @@ dependencies:
   - libintl=0.22.5=h8fbad5d_2
   - libopenblas=0.3.21=h269037a_0
   - libpng=1.6.39=h80987f9_0
+  - libpq=12.17=h02f6b3c_0
   - libsqlite=3.45.3=h091b4b1_0
   - libtiff=4.5.1=h313beb8_0
   - libwebp-base=1.3.2=h80987f9_0
@@ -59,6 +62,7 @@ dependencies:
   - pillow=10.3.0=py311h80987f9_0
   - pip=24.0=py311hca03da5_0
   - pixman=0.43.4=hebf3989_0
+  - psycopg2=2.9.9=py311h80987f9_0
   - pyparsing=3.0.9=py311hca03da5_0
   - python=3.11.8=hdf0ec26_0_cpython
   - python-dateutil=2.9.0post0=py311hca03da5_0
@@ -83,4 +87,4 @@ dependencies:
       - pycparser==2.22
       - tinycss2==1.3.0
       - webencodings==0.5.1
-prefix: /Users/asaken_n47/miniconda3/envs/ant_env_1
+prefix: /Users/asaken_n47/miniconda3/envs/aco-env-1
