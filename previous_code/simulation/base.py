@@ -407,8 +407,8 @@ class Simulation:
 def main(params: Params):
     try:
         # DBLoggerインスタンス作成
-        dblogger = DBLogger("asaken_n40", "asaken_N40",
-                            "localhost", "simulation", "5432")
+        dblogger = DBLogger("user", "password",
+                            "localhost", "test_db", "5432")
 
         dblogger.connect()
 
@@ -512,8 +512,8 @@ if __name__ == "__main__":
                     pheromone_max=2**20,
                     ttl=100,
                     bata=1,
-                    generation_limit=100,
-                    simulation_count=1)
+                    generation_limit=20000,
+                    simulation_count=100)
 
     with Pool() as p:
         p.map(main, [params] * params.simulation_count)

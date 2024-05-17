@@ -58,7 +58,7 @@ class DBLogger:
         self.cursor.close()
         self.connector.close()
 
-dblogger = DBLogger("asaken_n40","asaken_N40","localhost","test","5432")
+dblogger = DBLogger("user", "password", "localhost", "test_db", "5432")
 result = dblogger.fetch_result("SELECT * FROM mytable;")
 print(result)
 dblogger.close()

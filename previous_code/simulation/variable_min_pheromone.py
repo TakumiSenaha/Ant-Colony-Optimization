@@ -20,7 +20,7 @@ def set_pheromone_based_on_dimension(self: Network, params: Params) -> None:
     for node in self.nodes:
         for link in node.neighbors.values():
             degree = len(node.neighbors)
-            link.pheromone = params.pheromone_min * 3 // degree
+            link.pheromone = (params.pheromone_min * 3) // degree
 
 # 次元数によって可変なフェロモン最小値下回らないようにフェロモン揮発
 def volitile_pheromone_based_on_dimension(self: Network, params: Params) -> None:
@@ -28,7 +28,7 @@ def volitile_pheromone_based_on_dimension(self: Network, params: Params) -> None
     for node in self.nodes:
         for link in node.neighbors.values():
             degree = len(node.neighbors)
-            floor = params.pheromone_min * 3 * degree
+            floor = (params.pheromone_min * 3) // degree
             tmp = math.floor(link.pheromone * params.volatility)
             if tmp < floor:
                 link.pheromone = floor
