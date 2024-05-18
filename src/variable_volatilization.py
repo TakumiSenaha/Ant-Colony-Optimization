@@ -1,7 +1,7 @@
 # 可変揮発量方式
 # 帯域の大きさによって揮発量を変化させる
 # TODO 揮発時ににwidthが小さいほど揮発量を大きくするよう変更
-from base import Params, Link, Node, Packet, Ant, Interest, Rand, Network, DBLogger, Simulation
+from aco_base_small_model import Params, Link, Node, Packet, Ant, Interest, Rand, Network, DBLogger, Simulation
 from typing import Dict, Tuple, ClassVar, Self, TYPE_CHECKING, cast, Any
 import random
 import traceback

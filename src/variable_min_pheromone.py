@@ -7,7 +7,7 @@
 # TODO データベースのテーブルを変更
 
 
-from base import Params, Link, Node, Packet, Ant, Interest, Rand, Network, DBLogger, Simulation
+from aco_base_small_model import Params, Link, Node, Packet, Ant, Interest, Rand, Network, DBLogger, Simulation
 from typing import Dict, Tuple, ClassVar, Self, TYPE_CHECKING, cast, Any
 import random
 import traceback
@@ -152,8 +152,8 @@ if __name__ == "__main__":
                     pheromone_max=2**20,
                     ttl=100,
                     bata=1,
-                    generation_limit=2,
-                    simulation_count=1)
+                    generation_limit=200,
+                    simulation_count=10)
 
     with Pool() as p:
         p.map(main, [params] * params.simulation_count)
