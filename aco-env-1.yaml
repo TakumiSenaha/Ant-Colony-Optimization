@@ -3,7 +3,9 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  - atk-1.0=2.38.0=hd03087b_2
   - blas=1.0=openblas
+  - bottleneck=1.3.7=py311hb9f6ed7_0
   - brotli=1.0.9=h80987f9_8
   - brotli-bin=1.0.9=h80987f9_8
   - bzip2=1.0.8=h80987f9_6
@@ -21,12 +23,23 @@ dependencies:
   - fonts-conda-forge=1=0
   - fonttools=4.51.0=py311h80987f9_0
   - freetype=2.12.1=h1192e45_0
+  - fribidi=1.0.10=h27ca646_0
+  - gdk-pixbuf=2.42.10=h9bcf4fe_0
+  - gettext=0.22.5=h8fbad5d_2
+  - gettext-tools=0.22.5=h8fbad5d_2
+  - graphite2=1.3.13=hebf3989_1003
+  - graphviz=9.0.0=h3face73_1
+  - gtk2=2.24.33=h7895bb2_4
+  - gts=0.7.6=he42f4ea_4
+  - harfbuzz=8.4.0=hbe0f7c0_0
   - icu=73.2=hc8870d7_0
   - jpeg=9e=h80987f9_1
   - kiwisolver=1.4.4=py311h313beb8_0
   - krb5=1.20.1=hf3e1bf2_1
   - lcms2=2.12=hba8e193_0
   - lerc=3.0=hc377ac9_0
+  - libasprintf=0.22.5=h8fbad5d_2
+  - libasprintf-devel=0.22.5=h8fbad5d_2
   - libbrotlicommon=1.0.9=h80987f9_8
   - libbrotlidec=1.0.9=h80987f9_8
   - libbrotlienc=1.0.9=h80987f9_8
@@ -35,17 +48,23 @@ dependencies:
   - libedit=3.1.20230828=h80987f9_0
   - libexpat=2.6.2=hebf3989_0
   - libffi=3.4.4=hca03da5_1
+  - libgd=2.3.3=h14f8a72_1
+  - libgettextpo=0.22.5=h8fbad5d_2
+  - libgettextpo-devel=0.22.5=h8fbad5d_2
   - libgfortran=5.0.0=11_3_0_hca03da5_28
   - libgfortran5=11.3.0=h009349e_28
   - libglib=2.80.0=hfc324ee_6
   - libiconv=1.17=h0d3ecfb_2
   - libintl=0.22.5=h8fbad5d_2
+  - libintl-devel=0.22.5=h8fbad5d_2
   - libopenblas=0.3.21=h269037a_0
   - libpng=1.6.39=h80987f9_0
   - libpq=12.17=h02f6b3c_0
+  - librsvg=2.58.0=hb3d354b_1
   - libsqlite=3.45.3=h091b4b1_0
   - libtiff=4.5.1=h313beb8_0
   - libwebp-base=1.3.2=h80987f9_0
+  - libxml2=2.12.7=ha661575_0
   - libzlib=1.2.13=h53f4e23_5
   - llvm-openmp=14.0.6=hc6e5704_0
   - lz4-c=1.9.4=h313beb8_1
@@ -53,19 +72,26 @@ dependencies:
   - matplotlib-base=3.8.4=py311h7aedaa7_0
   - ncurses=6.4=h313beb8_0
   - networkx=3.1=py311hca03da5_0
+  - numexpr=2.8.7=py311h6dc990b_0
   - numpy=1.26.4=py311he598dae_0
   - numpy-base=1.26.4=py311hfbfe69c_0
   - openjpeg=2.3.0=h7a6adac_2
   - openssl=3.3.0=h0d3ecfb_0
   - packaging=23.2=py311hca03da5_0
+  - pandas=2.2.1=py311h7aedaa7_0
+  - pango=1.50.14=hcf40dda_2
   - pcre2=10.43=h26f9a81_0
   - pillow=10.3.0=py311h80987f9_0
   - pip=24.0=py311hca03da5_0
   - pixman=0.43.4=hebf3989_0
   - psycopg2=2.9.9=py311h80987f9_0
+  - pygraphviz=1.13=py311h7a5596a_0
   - pyparsing=3.0.9=py311hca03da5_0
   - python=3.11.8=hdf0ec26_0_cpython
   - python-dateutil=2.9.0post0=py311hca03da5_0
+  - python-tzdata=2023.3=pyhd3eb1b0_0
+  - python_abi=3.11=4_cp311
+  - pytz=2024.1=py311hca03da5_0
   - readline=8.2=h1a28f6b_0
   - setuptools=69.5.1=py311hca03da5_0
   - six=1.16.0=pyhd3eb1b0_1
