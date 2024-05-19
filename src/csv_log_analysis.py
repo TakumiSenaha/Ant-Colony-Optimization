@@ -2,13 +2,13 @@ import csv
 import matplotlib.pyplot as plt
 import pprint
 
-csv_file_name = 'log_interest.csv'
-export_image_name = 'test.SVG'
+csv_file_name = './simulation_result/log_interest.csv'
+export_image_name = './simulation_result/result_previous.SVG'
 
 # ! 結果の集計---------------------------------------------------------------
 
 # CSVファイルを読み込む
-with open('log_interest.csv', 'r') as f:
+with open('./simulation_result/log_interest.csv', 'r') as f:
     reader = csv.reader(f)
     data = [list(map(int, row)) for row in reader]
 

@@ -12,10 +12,10 @@ MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
 TTL = 100  # antのTime to Live
 W = 1000  # 帯域幅初期値
-BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
+BETA = 2  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 1000  # ant，interestを放つ回数(世代)
+GENERATION = 2000  # ant，interestを放つ回数(世代)
 
 # /////////////////////////////////////////////////クラス定義/////////////////////////////////////////////////
 
@@ -69,6 +69,8 @@ def volatilize_by_width(node_list: list[Node]) -> None:
         for i in range(len(node.pheromone)):
             # 揮発量はwidth100のとき0.99、width10のとき0.91
             rate = 0.89 + node.width[i] / 1000
+            # rate = (0.99 * (0.8**((100-node.width[i])/10)))
+            # rate = 0.99
             new_pheromone = math.floor(node.pheromone[i] * rate)
             if new_pheromone <= node.min_pheromone:
                 node.pheromone[i] = node.min_pheromone
@@ -93,7 +95,7 @@ def update_pheromone(ant: Ant, node_list: list[Node]) -> None:
             before_node.pheromone[index] = MAX_F
 
 
-def ant_next_node(ant_list: list[Ant], node_list: list[Node]) -> None:
+def ant_next_node(ant_list: list[Ant], node_list: list[Node], current_generation: int) -> None:
     # antの次のノードを決定
     # 繰り返し中にリストから削除を行うためreversed
     for ant in reversed(ant_list):
@@ -121,9 +123,16 @@ def ant_next_node(ant_list: list[Ant], node_list: list[Node]) -> None:
                 candidacy_pheromones.append(pheromone[index])
                 candidacy_width.append(width[index])
 
+            # weight_width = [i ** BETA for i in candidacy_width]
+            # weighting = [
+            #     x*y for (x, y) in zip(candidacy_pheromones, weight_width)]
+            
+            # フェロモンの影響力を世代数に応じて調整
+            pheromone_influence = (current_generation / GENERATION) * BETA
             weight_width = [i ** BETA for i in candidacy_width]
             weighting = [
-                x*y for (x, y) in zip(candidacy_pheromones, weight_width)]
+                (pheromone ** pheromone_influence) * width_weight for pheromone, width_weight in zip(candidacy_pheromones, weight_width)
+            ]
 
             next_node = random.choices(diff_list, k=1, weights=weighting)[0]
 
@@ -361,7 +370,7 @@ def visualize_graph(node_list):
 
     agraph = nx.nx_agraph.to_agraph(g)
     agraph.node_attr["shape"] = "circle"
-    agraph.draw("./sample.pdf", prog="fdp", format="pdf")
+    agraph.draw("./simulation_result/ba_model_sample.pdf", prog="fdp", format="pdf")
 
 
 def set_node_min_pheromone_by_degree(node_list: list[Node]) -> None:
@@ -434,7 +443,7 @@ if __name__ == "__main__":
                             for _ in range(ANT_NUM)])
             # Antの移動
             for _ in range(TTL):
-                ant_next_node(ant_list, node_list)
+                ant_next_node(ant_list, node_list, gen)
 
             # 揮発フェーズ
             # option volatilize(node_list)
@@ -463,15 +472,15 @@ if __name__ == "__main__":
         # show_node_info(node_list)
 
         # print(interest_log)
-        f = open("./log_interest.csv", "a", newline="")
+        f = open("./simulation_result/log_interest.csv", "a", newline="")
         writer = csv.writer(f)
         writer.writerow(interest_log)
         f.close()
 
         # print(rand_log)
-        f = open("./log_rand.csv", "a", newline="")
+        f = open("./simulation_result/log_rand.csv", "a", newline="")
         writer = csv.writer(f)
         writer.writerow(rand_log)
         f.close()
 
-        visualize_graph(node_list)
+        # visualize_graph(node_list)
