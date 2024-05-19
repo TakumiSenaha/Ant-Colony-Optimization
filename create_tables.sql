@@ -1,65 +1,83 @@
--- Parameters table
-CREATE TABLE parameters (
-    parameterid SERIAL PRIMARY KEY,
-    numberofnodes INTEGER,
-    optimalpathlength INTEGER,
-    volatility FLOAT,
-    minpheromone INTEGER,
-    maxpheromone INTEGER,
-    ttl INTEGER,
-    bata INTEGER,
-    generationlimit INTEGER,
-    UNIQUE (numberofnodes, optimalpathlength, volatility, minpheromone, maxpheromone, ttl, bata, generationlimit)
+CREATE TABLE Parameters (
+    ParameterID SERIAL PRIMARY KEY,
+    NumberOfNodes int,
+    Volatility float,
+    MinPheromone float,
+    MaxPheromone float,
+    TTL int,
+    GenerationLimit int,
+    SimulationLimit int,
+    optimalPathLength int,
+    bata float
+);
+-- unique制約をつける
+
+CREATE TABLE Simulations (
+    SimulationID SERIAL PRIMARY KEY,
+    ParameterID int,
+    FOREIGN KEY (ParameterID) REFERENCES Parameters(ParameterID)
 );
 
--- Simulations table
-CREATE TABLE simulations (
-    simulationid SERIAL PRIMARY KEY,
-    parameterid INTEGER REFERENCES parameters(parameterid)
+CREATE TABLE Generations (
+    GenerationID BIGSERIAL PRIMARY KEY,
+    SimulationID int,
+    FOREIGN KEY (SimulationID) REFERENCES Simulations(SimulationID)
 );
 
--- Nodes table
-CREATE TABLE nodes (
-    nodeid SERIAL PRIMARY KEY,
-    simulationid INTEGER REFERENCES simulations(simulationid),
-    num_of_connections INTEGER
+CREATE TABLE Nodes (
+    NodeID BIGSERIAL PRIMARY KEY,
+    SimulationID int,
+    Num_of_Generations int,
+    FOREIGN KEY (SimulationID) REFERENCES Simulations(SimulationID)
 );
 
--- Generations table
-CREATE TABLE generations (
-    generationid SERIAL PRIMARY KEY,
-    simulationid INTEGER REFERENCES simulations(simulationid),
-    generation_count INTEGER
+CREATE TABLE Connections (
+    GenerationID Bigint,
+    StartNodeID Bigint,
+    EndNodeID Bigint,
+    Width int,
+    Pheromone int,
+    FOREIGN KEY (GenerationID) REFERENCES Generations(GenerationID),
+    FOREIGN KEY (StartNodeID) REFERENCES Nodes(NodeID),
+    FOREIGN KEY (EndNodeID) REFERENCES Nodes(NodeID),
+    PRIMARY KEY (GenerationID, StartNodeID, EndNodeID)
 );
 
--- Connections table
-CREATE TABLE connections (
-    connectionid SERIAL PRIMARY KEY,
-    generationid INTEGER REFERENCES generations(generationid),
-    startnodeid INTEGER REFERENCES nodes(nodeid),
-    endnodeid INTEGER REFERENCES nodes(nodeid),
-    pheromone FLOAT,
-    width INTEGER
+CREATE TABLE Ants (
+    GenerationID Bigint,
+    SourceNodeID Bigint,
+    DestinationNodeID Bigint,
+    RouteNodesID Bigint[],
+    RouteWidths int[],
+    RouteBottleneck int,
+    FOREIGN KEY (GenerationID) REFERENCES Generations(GenerationID),
+    FOREIGN KEY (SourceNodeID) REFERENCES Nodes(NodeID),
+    FOREIGN KEY (DestinationNodeID) REFERENCES Nodes(NodeID),
+    PRIMARY KEY (GenerationID)
 );
 
--- Ants table
-CREATE TABLE ants (
-    antid SERIAL PRIMARY KEY,
-    generationid INTEGER REFERENCES generations(generationid),
-    sourcenodeid INTEGER REFERENCES nodes(nodeid),
-    destinationnodeid INTEGER REFERENCES nodes(nodeid),
-    routenodesid INTEGER[],
-    routewidths INTEGER[],
-    routebottleneck INTEGER
+CREATE TABLE Interests (
+    GenerationID Bigint,
+    SourceNodeID Bigint,
+    DestinationNodeID Bigint,
+    RouteNodesID Bigint[],
+    RouteWidths int[],
+    RouteBottleneck int,
+    FOREIGN KEY (GenerationID) REFERENCES Generations(GenerationID),
+    FOREIGN KEY (SourceNodeID) REFERENCES Nodes(NodeID),
+    FOREIGN KEY (DestinationNodeID) REFERENCES Nodes(NodeID),
+    PRIMARY KEY (GenerationID)
 );
 
--- Interests table
-CREATE TABLE interests (
-    interestid SERIAL PRIMARY KEY,
-    generationid INTEGER REFERENCES generations(generationid),
-    sourcenodeid INTEGER REFERENCES nodes(nodeid),
-    destinationnodeid INTEGER REFERENCES nodes(nodeid),
-    routenodesid INTEGER[],
-    routewidths INTEGER[],
-    routebottleneck INTEGER
+CREATE TABLE Rands (
+    GenerationID Bigint,
+    SourceNodeID Bigint,
+    DestinationNodeID Bigint,
+    RouteNodesID Bigint[],
+    RouteWidths int[],
+    RouteBottleneck int,
+    FOREIGN KEY (GenerationID) REFERENCES Generations(GenerationID),
+    FOREIGN KEY (SourceNodeID) REFERENCES Nodes(NodeID),
+    FOREIGN KEY (DestinationNodeID) REFERENCES Nodes(NodeID),
+    PRIMARY KEY (GenerationID)
 );
