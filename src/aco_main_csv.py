@@ -68,8 +68,8 @@ def volatilize_by_width(node_list: list[Node]) -> None:
     for node in node_list:
         for i in range(len(node.pheromone)):
             # 揮発量はwidth100のとき0.99、width10のとき0.91
-            rate = 0.89 + node.width[i] / 1000
-            # rate = (0.99 * (0.8**((100-node.width[i])/10)))
+            # rate = 0.89 + node.width[i] / 1000
+            rate = (0.99 * (0.8**((100-node.width[i])/10)))
             # rate = 0.99
             new_pheromone = math.floor(node.pheromone[i] * rate)
             if new_pheromone <= node.min_pheromone:
