@@ -18,7 +18,7 @@ try:
     # カーソルを作成
     cur = conn.cursor()
 
-    parameter_id = 8
+    parameter_id = 24
     # 縦列→世代(昇順)、横行→widthを降順(100,90,80...0)、要素→その世代におけるそのwidthの回数
     width_counts_matrix = [[0]*11 for _ in range(20)]
 

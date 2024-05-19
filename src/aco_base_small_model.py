@@ -85,7 +85,7 @@ class Packet:
 
 
 class Ant(Packet):
-    def hop(self, params: Params) -> None:
+    def hop(self, params: Params, current_generation: int) -> None:
         unvisited_nodes = [
             node for node in self.current_node.neighbors.keys() if node not in self.route]
 
@@ -127,12 +127,14 @@ class Ant(Packet):
             return
 
         # current_nodeのneighborsにdestinationが含まれていない場合
+        # フェロモンの影響力を世代数に応じて調整
+        pheromone_influence = (current_generation / params.generation_limit) * params.bata
         unvisited_links = [self.current_node.neighbors[node]
                            for node in self.current_node.neighbors.keys() if node not in self.route]
         unvisited_links_width = [link.width for link in unvisited_links]
         unvisited_links_pheromone = [
             link.pheromone for link in unvisited_links]
-        weights = [(width ** params.bata) * pheromone for width,
+        weights = [(width ** params.bata) * (pheromone ** pheromone_influence) for width,
                    pheromone in zip(unvisited_links_width, unvisited_links_pheromone)]
         # debug
         # print(f"Weights")
@@ -149,9 +151,9 @@ class Ant(Packet):
         self.update_attr(next_node)
         return
 
-    def hop_if_movable(self, params: Params) -> None:
+    def hop_if_movable(self, params: Params, current_generation: int) -> None:
         while self.movable:
-            self.hop(params)
+            self.hop(params, current_generation)
 
     def get_insert_query(self, generation_id: int) -> str:
         route_node_id = [node.id for node in self.route]
@@ -324,7 +326,7 @@ class Network:
                                    ].pheromone += ant.route_bottoleneck
 
     def volitile_pheromone(self, params: Params) -> None:
-        # self.nodesのすべてのNodeのneighborsのLinkのフェロモンを揮発(×params.bata)させる
+        # self.nodesのすべてのNodeのneighborsのLinkのフェロモンを揮発(×params.volatility)させる
         for node in self.nodes:
             for link in node.neighbors.values():
                 tmp = math.floor(link.pheromone * params.volatility)
@@ -505,14 +507,14 @@ def main(params: Params):
 
 if __name__ == "__main__":
     # パラメータを設定
-    params = Params(num_nodes=100,
+    params = Params(num_nodes=20,
                     optimal_route_length=6,
                     volatility=0.99,
                     pheromone_min=100,
                     pheromone_max=2**20,
                     ttl=100,
                     bata=1,
-                    generation_limit=20000,
+                    generation_limit=200,
                     simulation_count=100)
 
     with Pool() as p:

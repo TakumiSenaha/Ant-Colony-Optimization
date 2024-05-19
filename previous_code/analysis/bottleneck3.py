@@ -16,7 +16,7 @@ try:
     cur = conn.cursor()
 
     parameter_id = 1
-    generation_limit = 20000
+    generation_limit = 500
     width_step = 10
     max_width = 100
 

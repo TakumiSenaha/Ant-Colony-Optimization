@@ -1,5 +1,5 @@
 # 可変フェロモン最小値方式と可変揮発量方式の両方を用いたシミュレーション
-from base import Params, Link, Node, Packet, Ant, Interest, Rand, Network, DBLogger, Simulation
+from aco_base_small_model import Params, Link, Node, Packet, Ant, Interest, Rand, Network, DBLogger, Simulation
 from typing import Dict, Tuple, ClassVar, Self, TYPE_CHECKING, cast, Any
 import random
 import traceback
@@ -16,8 +16,9 @@ def volitile_pheromone_based_on_dimension_and_width(self: Network, params: Param
     for node in self.nodes:
         for link in node.neighbors.values():
             degree = len(node.neighbors)
-            floor = (params.pheromone_min * 3) // degree
-            rate = 0.89 + (link.width / 1000)
+            floor = (params.pheromone_min * 3) // (degree)
+            # rate = params.volatility + (link.width / 500) # 世代200から上がっていきそうな兆しのあるparm
+            rate = (params.volatility * (0.1**((100-link.width)/10)))
             tmp = math.floor(link.pheromone * rate)
             if tmp < floor:
                 link.pheromone = floor
@@ -94,7 +95,7 @@ def main(params: Params):
                 simulation.network.start_node, simulation.network.end_node)
 
             # antの移動
-            simulation.ant.hop_if_movable(params)
+            simulation.ant.hop_if_movable(params, generation_count)
 
             # 目的地に到達していたらフェロモン付加
             if simulation.ant.is_at_destination():
@@ -128,19 +129,20 @@ def main(params: Params):
         print(traceback.format_exc())
 
     finally:
+        # Network modelを描画して保存したい
         dblogger.close()
 
 
 if __name__ == "__main__":
     # パラメータを設定
-    params = Params(num_nodes=100,
+    params = Params(num_nodes=20,
                     optimal_route_length=6,
                     volatility=0.99,
                     pheromone_min=100,
                     pheromone_max=2**20,
                     ttl=100,
-                    bata=1,
-                    generation_limit=30000,
+                    bata=2,
+                    generation_limit=500,
                     simulation_count=100)
 
     with Pool() as p:
