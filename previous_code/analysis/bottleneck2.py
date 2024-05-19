@@ -18,21 +18,21 @@ try:
     # カーソルを作成
     cur = conn.cursor()
 
-    parameter_id = 1
+    parameter_id = 24
     # 縦列→世代(昇順)、横行→widthを降順(100,90,80...0)、要素→その世代におけるそのwidthの回数
-    width_counts_matrix = [[0]*11 for _ in range(100000)]
+    width_counts_matrix = [[0]*11 for _ in range(20)]
 
     # 各世代のwidthの出現回数を取得
-    for generation in range(0, 100000):
+    for generation in range(0, 20):
         for bottleneck in range(0, 101, 10):
             # SQLクエリを実行
-            cur.execute(f"""SELECT Count(interests.routebottleneck)
-                        FROM interests
-                        JOIN generations ON interests.generationid = generations.generationid
+            cur.execute(f"""SELECT Count(ants.routebottleneck)
+                        FROM ants
+                        JOIN generations ON ants.generationid = generations.generationid
                         JOIN simulations ON generations.simulationid = simulations.simulationid
                         WHERE simulations.parameterid = {parameter_id} 
                         AND generations.generation_count = {generation} 
-                        AND interests.routebottleneck = {bottleneck};""")
+                        AND ants.routebottleneck = {bottleneck};""")
 
             # 結果を取得
             rows = cur.fetchall()
@@ -43,7 +43,7 @@ try:
     pprint.pprint(width_counts_matrix)
 
     # 縦列→世代(昇順)、横行→widthを降順(100,90,80...0)、要素→その世代におけるそのwidthの割合
-    proportions = [[0]*11 for _ in range(100)]
+    proportions = [[0]*11 for _ in range(20)]
     for generation, width_count_list in enumerate(width_counts_matrix):
         total = sum(width_count_list)
         for i, width in enumerate(width_count_list):
