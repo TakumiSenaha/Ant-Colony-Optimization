@@ -9,9 +9,10 @@ import numpy as np
 
 V = 0.99  # フェロモン揮発量
 MIN_F = 100  # フェロモン最小値
-MAX_F = 1000000000  # フェロモン最大値
+MAX_F = 1000000  # フェロモン最大値
 TTL = 100  # antのTime to Live
 W = 1000  # 帯域幅初期値
+ALPHA = 0.01
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
@@ -131,17 +132,19 @@ def ant_next_node(
             # weighting = [
             #     x*y for (x, y) in zip(candidacy_pheromones, weight_width)]
 
-            # フェロモンの影響力を世代数に応じて調整
-            pheromone_influence = min(
-                math.exp(current_generation / GENERATION) - 1, BETA + 0.1
-            )
-            weight_width = [i**BETA for i in candidacy_width]
-            weighting = [
-                (pheromone**pheromone_influence) * width_weight
-                for pheromone, width_weight in zip(candidacy_pheromones, weight_width)
-            ]
-
-            next_node = random.choices(diff_list, k=1, weights=weighting)[0]
+            # ランダム性を導入する割合を計算
+            random_factor = 0.1 + 0.9 * (GENERATION - current_generation) / GENERATION
+            if random.random() < random_factor:
+                # ランダムに次のノードを選択
+                next_node = random.choice(diff_list)
+            else:
+                # フェロモン濃度が最も高いものを選択(最大値が複数ある場合はランダム)
+                max_pheromone_index = [
+                    i
+                    for i, x in enumerate(candidacy_pheromones)
+                    if x == max(candidacy_pheromones)
+                ]
+                next_node = diff_list[random.choice(max_pheromone_index)]
 
             # antの属性更新(現在地更新・ノード番号追加・帯域の配列に帯域を追加)
             ant.current = next_node
@@ -455,13 +458,6 @@ if __name__ == "__main__":
 
         print(f"Route  ===  {route}")
 
-        # routeの帯域を100に書き換え
-        for i in range(1, len(route)):
-            before_node: Node = node_list[route[i - 1]]
-
-            index = before_node.connection.index(route[i])
-            before_node.width[index] = 100
-
         # show_node_info(node_list) # debug
 
         # 各ノードのフェロモン最小値を決定
@@ -489,7 +485,7 @@ if __name__ == "__main__":
 
             # 揮発フェーズ
             # option volatilize(node_list)
-            volatilize_by_width(node_list)
+            volatilize(node_list)
 
             # ! -------------------------------------------------評価-------------------------------------------------
             print(
