@@ -12,7 +12,7 @@ MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
 TTL = 100  # antのTime to Live
 W = 1000  # 帯域幅初期値
-BETA = 2  # 経路選択の際のヒューリスティック値に対する重み(累乗)
+BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
 GENERATION = 2000  # ant，interestを放つ回数(世代)
@@ -128,7 +128,7 @@ def ant_next_node(ant_list: list[Ant], node_list: list[Node], current_generation
             #     x*y for (x, y) in zip(candidacy_pheromones, weight_width)]
             
             # フェロモンの影響力を世代数に応じて調整
-            pheromone_influence = (current_generation / GENERATION) * BETA
+            pheromone_influence = min(math.exp(current_generation / GENERATION) - 1, BETA + 0.1)
             weight_width = [i ** BETA for i in candidacy_width]
             weighting = [
                 (pheromone ** pheromone_influence) * width_weight for pheromone, width_weight in zip(candidacy_pheromones, weight_width)
