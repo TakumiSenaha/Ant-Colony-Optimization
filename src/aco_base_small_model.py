@@ -1,17 +1,30 @@
 # 通常ACO
 # 出力はDBに格納
-from typing import Dict, Tuple, ClassVar, Self, TYPE_CHECKING, cast, Any
+import math
 import random
 import traceback
-import math
-import psycopg2
 from multiprocessing import Pool
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, Self, Tuple, cast
+
+import psycopg2
+
 # ! interestがdestinationに到達していないのに終了してしまっている
 # ! interestがpheromoneが最も高い経路を選択してる？
 
 
 class Params:
-    def __init__(self, num_nodes: int, optimal_route_length: int, volatility: float, pheromone_min: int, pheromone_max: int, ttl: int, bata: int, generation_limit: int, simulation_count: int) -> None:
+    def __init__(
+        self,
+        num_nodes: int,
+        optimal_route_length: int,
+        volatility: float,
+        pheromone_min: int,
+        pheromone_max: int,
+        ttl: int,
+        bata: int,
+        generation_limit: int,
+        simulation_count: int,
+    ) -> None:
         self.id = None  # パラメータID
         self.num_nodes = num_nodes  # ノード数
         self.optimal_route_length = optimal_route_length  # 最適ルート長
@@ -50,13 +63,14 @@ class Node:
         target_node.neighbors[self] = Link(width, pheromone)
 
     def generate_insert_query(self, simulation_id) -> str:
-        return f'INSERT INTO Nodes (simulationid, Num_of_connections) VALUES ({simulation_id},{len(self.neighbors)});'
+        return f"INSERT INTO Nodes (simulationid, Num_of_connections) VALUES ({simulation_id},{len(self.neighbors)});"
 
     def show_info(self) -> None:
         print(f"NodeID: {self.id}")
         for node, link in self.neighbors.items():
             print(
-                f"└ NodeID: {node.id}, Width: {link.width}, Pheromone: {link.pheromone}")
+                f"└ NodeID: {node.id}, Width: {link.width}, Pheromone: {link.pheromone}"
+            )
         print("")
 
 
@@ -77,7 +91,8 @@ class Packet:
         self.route.append(next_node)
         self.route_width.append(self.current_node.neighbors[next_node].width)
         self.route_bottoleneck = min(
-            self.route_bottoleneck, self.current_node.neighbors[next_node].width)
+            self.route_bottoleneck, self.current_node.neighbors[next_node].width
+        )
         self.current_node = next_node
 
     def set_unmovable(self) -> None:
@@ -87,7 +102,10 @@ class Packet:
 class Ant(Packet):
     def hop(self, params: Params, current_generation: int) -> None:
         unvisited_nodes = [
-            node for node in self.current_node.neighbors.keys() if node not in self.route]
+            node
+            for node in self.current_node.neighbors.keys()
+            if node not in self.route
+        ]
 
         # debug
         # print(f"CurrentNodeID: {self.current_node.id}")
@@ -118,7 +136,9 @@ class Ant(Packet):
         # current_nodeのneighborsにdestinationが含まれている場合
         if self.destination in self.current_node.neighbors.keys():
             # debug
-            print(f"Destination NodeID: {self.destination.id} is in current_node_neighbors!")
+            print(
+                f"Destination NodeID: {self.destination.id} is in current_node_neighbors!"
+            )
             print("")
 
             # destinationに到達したので属性を更新し終了
@@ -128,20 +148,28 @@ class Ant(Packet):
 
         # current_nodeのneighborsにdestinationが含まれていない場合
         # フェロモンの影響力を世代数に応じて調整
-        pheromone_influence = (current_generation / params.generation_limit) * params.bata
-        unvisited_links = [self.current_node.neighbors[node]
-                           for node in self.current_node.neighbors.keys() if node not in self.route]
+        pheromone_influence = (
+            current_generation / params.generation_limit
+        ) * params.bata
+        unvisited_links = [
+            self.current_node.neighbors[node]
+            for node in self.current_node.neighbors.keys()
+            if node not in self.route
+        ]
         unvisited_links_width = [link.width for link in unvisited_links]
-        unvisited_links_pheromone = [
-            link.pheromone for link in unvisited_links]
-        weights = [(width ** params.bata) * (pheromone ** pheromone_influence) for width,
-                   pheromone in zip(unvisited_links_width, unvisited_links_pheromone)]
+        unvisited_links_pheromone = [link.pheromone for link in unvisited_links]
+        weights = [
+            (width**params.bata) * (pheromone**pheromone_influence)
+            for width, pheromone in zip(
+                unvisited_links_width, unvisited_links_pheromone
+            )
+        ]
         # debug
         # print(f"Weights")
         # for node, width, pheromone, weight in zip(unvisited_nodes ,unvisited_links_width, unvisited_links_pheromone, weights):
         #     print(
         #         f"└ NodeID: {node.id} -> Width: {width}, Pheromone: {pheromone} -> Weight: {weight}")
-            
+
         next_node = random.choices(unvisited_nodes, weights=weights)[0]
 
         # debug
@@ -168,13 +196,16 @@ class Ant(Packet):
         print(f"└ RouteBottleneck: {self.route_bottoleneck}")
         print("")
 
-        return f'INSERT INTO Ants (GenerationId, SourceNodeID, DestinationNodeID, RouteNodesID, RouteWidths, RouteBottleneck) VALUES ({generation_id}, {self.source.id}, {self.destination.id}, ARRAY{route_node_id}, ARRAY{self.route_width}, {self.route_bottoleneck});'
+        return f"INSERT INTO Ants (GenerationId, SourceNodeID, DestinationNodeID, RouteNodesID, RouteWidths, RouteBottleneck) VALUES ({generation_id}, {self.source.id}, {self.destination.id}, ARRAY{route_node_id}, ARRAY{self.route_width}, {self.route_bottoleneck});"
 
 
 class Rand(Packet):
     def hop(self):
         unvisited_nodes = [
-            node for node in self.current_node.neighbors.keys() if node not in self.route]
+            node
+            for node in self.current_node.neighbors.keys()
+            if node not in self.route
+        ]
         # current_nodeのneighborsに未訪問ノードがないならば属性を更新し終了
         if len(unvisited_nodes) == 0:
             self.set_unmovable()
@@ -201,13 +232,16 @@ class Rand(Packet):
 
     def get_insert_query(self, generation_id: int) -> str:
         route_node_id = [node.id for node in self.route]
-        return f'INSERT INTO Rands (GenerationId, SourceNodeID, DestinationNodeID, RouteNodesID, RouteWidths, RouteBottleneck) VALUES ({generation_id}, {self.source.id}, {self.destination.id}, ARRAY{route_node_id}, ARRAY{self.route_width}, {self.route_bottoleneck});'
+        return f"INSERT INTO Rands (GenerationId, SourceNodeID, DestinationNodeID, RouteNodesID, RouteWidths, RouteBottleneck) VALUES ({generation_id}, {self.source.id}, {self.destination.id}, ARRAY{route_node_id}, ARRAY{self.route_width}, {self.route_bottoleneck});"
 
 
 class Interest(Packet):
     def hop(self) -> None:
         unvisited_nodes = [
-            node for node in self.current_node.neighbors.keys() if node not in self.route]
+            node
+            for node in self.current_node.neighbors.keys()
+            if node not in self.route
+        ]
         # current_nodeのneighborsに未訪問ノードがないならば属性を更新し終了
         if len(unvisited_nodes) == 0:
             self.set_unmovable()
@@ -224,7 +258,9 @@ class Interest(Packet):
         # current_nodeのneighborsにdestinationが含まれていない場合
         # neighborの中で最もフェロモンが多いノードを選択
         next_node = max(
-            unvisited_nodes, key=lambda node: node.neighbors[self.current_node].pheromone)
+            unvisited_nodes,
+            key=lambda node: node.neighbors[self.current_node].pheromone,
+        )
         self.update_attr(next_node)
         return
 
@@ -245,7 +281,7 @@ class Interest(Packet):
         print(f"└ RouteBottleneck: {self.route_bottoleneck}")
         print("")
 
-        return f'INSERT INTO Interests (GenerationId, SourceNodeID, DestinationNodeID, RouteNodesID, RouteWidths, RouteBottleneck) VALUES ({generation_id}, {self.source.id}, {self.destination.id}, ARRAY{route_node_id}, ARRAY{self.route_width}, {self.route_bottoleneck});'
+        return f"INSERT INTO Interests (GenerationId, SourceNodeID, DestinationNodeID, RouteNodesID, RouteWidths, RouteBottleneck) VALUES ({generation_id}, {self.source.id}, {self.destination.id}, ARRAY{route_node_id}, ARRAY{self.route_width}, {self.route_bottoleneck});"
 
 
 class Network:
@@ -260,12 +296,15 @@ class Network:
 
     def make_ba_model(self, params: Params, edge_num: int) -> None:
         # 3つのノードから初期ネットワーク作成
-        self.nodes[0].connect(self.nodes[1], random.randint(
-            1, 10) * 10, params.pheromone_min)
-        self.nodes[1].connect(self.nodes[2], random.randint(
-            1, 10) * 10, params.pheromone_min)
-        self.nodes[2].connect(self.nodes[0], random.randint(
-            1, 10) * 10, params.pheromone_min)
+        self.nodes[0].connect(
+            self.nodes[1], random.randint(1, 10) * 10, params.pheromone_min
+        )
+        self.nodes[1].connect(
+            self.nodes[2], random.randint(1, 10) * 10, params.pheromone_min
+        )
+        self.nodes[2].connect(
+            self.nodes[0], random.randint(1, 10) * 10, params.pheromone_min
+        )
 
         # BAモデルの次数分布を格納するリスト
         nodes_degree = [0 for _ in range(params.num_nodes)]
@@ -280,17 +319,23 @@ class Network:
             target_nodes_id = []
 
             for _ in range(edge_num):
-                chosen_id = random.choices(candidate_nodes_id, weights=candidate_nodes_weight)[
-                    0]  # 重み付き乱択で接続先候補ノードを選択
+                chosen_id = random.choices(
+                    candidate_nodes_id, weights=candidate_nodes_weight
+                )[
+                    0
+                ]  # 重み付き乱択で接続先候補ノードを選択
                 target_nodes_id.append(chosen_id)
-                del candidate_nodes_weight[candidate_nodes_id.index(
-                    chosen_id)]  # 選択したノードの重みを削除
-                del candidate_nodes_id[candidate_nodes_id.index(
-                    chosen_id)]  # 選択したノードのidを削除
+                del candidate_nodes_weight[
+                    candidate_nodes_id.index(chosen_id)
+                ]  # 選択したノードの重みを削除
+                del candidate_nodes_id[
+                    candidate_nodes_id.index(chosen_id)
+                ]  # 選択したノードのidを削除
 
             for j in target_nodes_id:
-                self.nodes[i].connect(self.nodes[j], random.randint(
-                    1, 10) * 10, params.pheromone_min)
+                self.nodes[i].connect(
+                    self.nodes[j], random.randint(1, 10) * 10, params.pheromone_min
+                )
 
             nodes_degree[i] = edge_num
 
@@ -304,26 +349,27 @@ class Network:
         optimal_route = [self.start_node]
         for _ in range(params.optimal_route_length):
             unvisited_nodes = [
-                node for node in self.end_node.neighbors.keys() if node not in optimal_route]
+                node
+                for node in self.end_node.neighbors.keys()
+                if node not in optimal_route
+            ]
             self.end_node = random.choice(unvisited_nodes)
             optimal_route.append(self.end_node)
         # 最適経路のnode間のLinkのwidthを100にする
         for i in range(len(optimal_route) - 1):
             optimal_route[i].neighbors[optimal_route[i + 1]].width = 100
         self.optimal_route = optimal_route
-        
+
         # debug
         # print(f"OptimalRoute : ", end="")
         # for node in self.optimal_route:
         #     print(f"- {node.id} -", end="")
         # print("\n")
 
-
     def add_pheromone_to_ant_route(self, ant: Ant) -> None:
         # antの辿った経路のフェロモン値にant.route_bottoleneck分を加算する
         for i in range(len(ant.route) - 1):
-            ant.route[i].neighbors[ant.route[i + 1]
-                                   ].pheromone += ant.route_bottoleneck
+            ant.route[i].neighbors[ant.route[i + 1]].pheromone += ant.route_bottoleneck
 
     def volitile_pheromone(self, params: Params) -> None:
         # self.nodesのすべてのNodeのneighborsのLinkのフェロモンを揮発(×params.volatility)させる
@@ -339,7 +385,9 @@ class Network:
 
 
 class DBLogger:
-    def __init__(self, user: str, password: str, host: str, db_name: str, port: str) -> None:
+    def __init__(
+        self, user: str, password: str, host: str, db_name: str, port: str
+    ) -> None:
         self.dbname = db_name
         self.user = user
         self.password = password
@@ -349,10 +397,7 @@ class DBLogger:
 
     def connect(self):
         self.connector = psycopg2.connect(
-            dbname=self.dbname,
-            user=self.user,
-            password=self.password,
-            host=self.host
+            dbname=self.dbname, user=self.user, password=self.password, host=self.host
         )
         self.cursor = self.connector.cursor()
 
@@ -403,31 +448,29 @@ class Simulation:
         self.generation_count: int = 0
 
     def generate_insert_query(self) -> str:
-        return f'INSERT INTO simulations (ParameterID) VALUES ({self.params.id});'
+        return f"INSERT INTO simulations (ParameterID) VALUES ({self.params.id});"
 
 
 def main(params: Params):
     try:
         # DBLoggerインスタンス作成
-        dblogger = DBLogger("user", "password",
-                            "localhost", "test_db", "5432")
+        dblogger = DBLogger("user", "password", "localhost", "test_db", "5432")
 
         dblogger.connect()
 
         # パラメータを登録&パラメータIDを取得
         params.id = dblogger.insert_conflict(
-            params.generate_insert_or_return_id_query())
+            params.generate_insert_or_return_id_query()
+        )
         if params.id is None:
-            params.id: int = dblogger.fetch_result(
-                params.generate_select_query())[0][0]
+            params.id: int = dblogger.fetch_result(params.generate_select_query())[0][0]
         print(f"params.id: {params.id}", end="\n\n")
 
         # Simulationインスタンス作成
         simulation = Simulation(dblogger, params)
 
         # シミュレーションを登録&シミュレーションIDを取得
-        simulation.id = dblogger.insert_and_get_id(
-            simulation.generate_insert_query())
+        simulation.id = dblogger.insert_and_get_id(simulation.generate_insert_query())
 
         # 任意の個数ノードインスタンスを作成
         simulation.network.yield_nodes(params)
@@ -438,8 +481,9 @@ def main(params: Params):
         # Nodeを登録&NodeIDを取得
         for node in simulation.network.nodes:
             node.id = dblogger.insert_and_get_id(
-                node.generate_insert_query(simulation.id))
-            
+                node.generate_insert_query(simulation.id)
+            )
+
         # 最適ルートを作成
         simulation.network.make_optimal_route(params)
 
@@ -449,19 +493,23 @@ def main(params: Params):
 
             # Genaerationを登録&GenerationIDを取得
             generation_id = dblogger.insert_and_get_id(
-                f'INSERT INTO generations (simulationid, generation_count) VALUES ({simulation.id},{generation_count});')
+                f"INSERT INTO generations (simulationid, generation_count) VALUES ({simulation.id},{generation_count});"
+            )
 
             # Connectionsを登録
             for startnode in simulation.network.nodes:
                 for endnode, link in startnode.neighbors.items():
                     dblogger.insert_and_get_id(
-                        f'INSERT INTO connections (GenerationID, StartNodeID, EndNodeID, Pheromone, Width) VALUES ({generation_id},{startnode.id},{endnode.id},{link.pheromone},{link.width});')
+                        f"INSERT INTO connections (GenerationID, StartNodeID, EndNodeID, Pheromone, Width) VALUES ({generation_id},{startnode.id},{endnode.id},{link.pheromone},{link.width});"
+                    )
 
             # antとinterestの生成
             simulation.ant = Ant(
-                simulation.network.start_node, simulation.network.end_node)
+                simulation.network.start_node, simulation.network.end_node
+            )
             simulation.interest = Interest(
-                simulation.network.start_node, simulation.network.end_node)
+                simulation.network.start_node, simulation.network.end_node
+            )
 
             # antの移動
             simulation.ant.hop_if_movable(params)
@@ -471,8 +519,7 @@ def main(params: Params):
                 simulation.network.add_pheromone_to_ant_route(simulation.ant)
 
             # antの結果を登録
-            dblogger.execute_query(
-                simulation.ant.get_insert_query(generation_id))
+            dblogger.execute_query(simulation.ant.get_insert_query(generation_id))
 
             # antをNoneにして消去
             simulation.ant = None
@@ -481,8 +528,7 @@ def main(params: Params):
             simulation.interest.hop_if_movable(params)
 
             # interestの結果を登録
-            dblogger.execute_query(
-                simulation.interest.get_insert_query(generation_id))
+            dblogger.execute_query(simulation.interest.get_insert_query(generation_id))
 
             # interestをNoneにして消去
             simulation.interest = None
@@ -507,18 +553,22 @@ def main(params: Params):
 
 if __name__ == "__main__":
     # パラメータを設定
-    params = Params(num_nodes=20,
-                    optimal_route_length=6,
-                    volatility=0.99,
-                    pheromone_min=100,
-                    pheromone_max=2**20,
-                    ttl=100,
-                    bata=1,
-                    generation_limit=200,
-                    simulation_count=100)
+    params = Params(
+        num_nodes=20,
+        optimal_route_length=6,
+        volatility=0.99,
+        pheromone_min=100,
+        pheromone_max=2**20,
+        ttl=100,
+        bata=1,
+        generation_limit=200,
+        simulation_count=100,
+    )
 
     with Pool() as p:
         p.map(main, [params] * params.simulation_count)
 
+    # for _ in range(params.simulation_count):
+    #     main(params)
     # for _ in range(params.simulation_count):
     #     main(params)
