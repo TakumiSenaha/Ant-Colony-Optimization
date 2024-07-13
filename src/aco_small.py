@@ -14,7 +14,7 @@ W = 1000  # 帯域幅初期値
 ALPHA = 1.0  # フェロモンの重み
 BETA = 2.0  # ヒューリスティックの重み
 ANT_NUM = 1  # 一回で放つ蟻の数を1に変更
-GENERATION = 100  # 蟻を放つ回数(世代)
+GENERATION = 10  # 蟻を放つ回数(世代)
 
 # ランダムシードの設定
 random.seed(42)
@@ -50,8 +50,8 @@ def create_manual_network():
 
     # ノード間の接続と帯域幅を手動で定義
     connect_node_twoway(node_list, 0, 1, 50, 50)
-    connect_node_twoway(node_list, 1, 2, 20, 20)
-    connect_node_twoway(node_list, 2, 3, 30, 30)
+    connect_node_twoway(node_list, 1, 2, 40, 40)
+    connect_node_twoway(node_list, 2, 3, 10, 10)
     connect_node_twoway(node_list, 3, 4, 40, 40)
     connect_node_twoway(node_list, 4, 5, 10, 10)
     connect_node_twoway(node_list, 5, 6, 50, 50)
@@ -60,7 +60,7 @@ def create_manual_network():
     connect_node_twoway(node_list, 8, 9, 40, 40)
     connect_node_twoway(node_list, 0, 2, 15, 15)  # 遠回りになる接続を追加
     connect_node_twoway(node_list, 2, 5, 25, 25)  # 遠回りになる接続を追加
-    connect_node_twoway(node_list, 1, 3, 15, 15)
+    connect_node_twoway(node_list, 1, 3, 30, 30)
     connect_node_twoway(node_list, 3, 5, 60, 60)
     connect_node_twoway(node_list, 5, 7, 25, 25)
     connect_node_twoway(node_list, 7, 9, 35, 35)
@@ -138,29 +138,13 @@ def calculate_probabilities(pheromones, alpha):
     return probabilities
 
 
-# ランダム探索の実行
-def random_search(node_list, start_node, goal_node):
-    route = [start_node]
-    current_node = start_node
-    while current_node != goal_node:
-        next_node = random.choice(node_list[current_node].connections)
-        route.append(next_node)
-        current_node = next_node
-        if len(route) > TTL:
-            break
-    return route
-
-
-# ネットワークの描画
+# ネットワークの描画（帯域幅のみ表示）
 def draw_network_bandwidth(node_list, title=""):
     G = nx.Graph()
     for i, node in enumerate(node_list):
         for conn, width in zip(node.connections, node.widths):
             G.add_edge(i, conn, weight=width)
     pos = nx.spring_layout(G)
-    edges = G.edges(data=True)
-    widths = [d["weight"] / 10 for (u, v, d) in edges]
-
     nx.draw(
         G,
         pos,
@@ -168,14 +152,15 @@ def draw_network_bandwidth(node_list, title=""):
         node_size=700,
         node_color="lightblue",
         font_size=15,
-        width=widths,
+        width=[d["weight"] / 10 for (u, v, d) in G.edges(data=True)],
         edge_color="black",
     )
     plt.title(title)
     plt.show()
 
 
-def draw_network(node_list, routes=[], title=""):
+# ネットワークの描画（フェロモン濃度を表示）
+def draw_network(node_list, title=""):
     G = nx.Graph()
     for i, node in enumerate(node_list):
         for conn, width, pheromone in zip(
@@ -199,9 +184,6 @@ def draw_network(node_list, routes=[], title=""):
         width=widths,
         edge_color=colors,
     )
-    for route in routes:
-        route_edges = [(route[i], route[i + 1]) for i in range(len(route) - 1)]
-        nx.draw_networkx_edges(G, pos, edgelist=route_edges, edge_color="blue", width=2)
     plt.title(title)
     plt.show()
 
@@ -211,8 +193,7 @@ def create_gif(node_list, all_routes, filename="aco_search.gif"):
     images = []
     for i, routes in enumerate(all_routes):
         plt.figure()
-        draw_network(node_list, routes, title=f"Generation {i+1}")
-        plt.savefig(f"frame_{i}.png")
+        draw_network(node_list, title=f"Generation {i+1}")
         images.append(imageio.imread(f"frame_{i}.png"))
     imageio.mimsave(filename, images, duration=0.5)
 
@@ -220,11 +201,16 @@ def create_gif(node_list, all_routes, filename="aco_search.gif"):
 # メイン処理
 def main():
     node_list = create_manual_network()
+
+    # 初期ネットワークの表示
+    draw_network_bandwidth(node_list, title="Initial Network with Bandwidth")
+
+    ants = [Ant(0, 9) for _ in range(10)]
+
     all_routes = []
 
     for gen in range(GENERATION):
         print(f"Generation {gen + 1}")
-        ants = [Ant(0, 9)]  # 各世代ごとに1匹の蟻を生成
         ant_next_node(ants, node_list, gen)
         routes = [ant.route for ant in ants if ant.complete]
         all_routes.append(routes)
@@ -235,14 +221,13 @@ def main():
                 print(f"Ant current route: {ant.route}")
         volatilize(node_list)
 
-    # ランダム探索
-    random_routes = [random_search(node_list, 0, 9) for _ in range(10)]
-    print("Random Search Routes:")
-    for route in random_routes:
-        print(route)
+        # 各世代ごとのネットワークの状態を表示
+        draw_network(node_list, title=f"Generation {gen + 1}")
 
-    draw_network(node_list, random_routes, title="Random Search")
+    # 最終ネットワークの表示
+    draw_network(node_list, title="Final Network with Pheromones")
 
+    # GIFの作成
     create_gif(node_list, all_routes)
 
 
