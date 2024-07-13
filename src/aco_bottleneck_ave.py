@@ -2,21 +2,22 @@
 import csv
 import math
 import random
+import secrets
 
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
-V = 0.99  # フェロモン揮発量
+V = 0.98  # フェロモン揮発量
 MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000  # フェロモン最大値
 TTL = 100  # antのTime to Live
 W = 1000  # 帯域幅初期値
-ALPHA = 0.01
-BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
+ALPHA = 1.0  # フェロモンの重み
+BETA = 2.0  # ヒューリスティックの重み
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 2000  # ant，interestを放つ回数(世代)
+GENERATION = 1000  # ant，interestを放つ回数(世代)
 
 # /////////////////////////////////////////////////クラス定義/////////////////////////////////////////////////
 
@@ -27,16 +28,23 @@ class Node:
         self.pheromone = pheromone  # 接続先ノードとのフェロモンの配列
         self.width = width  # 接続先ノードとの帯域の配列
         self.min_pheromone = MIN_F  # フェロモン最小値
+        self.max_pheromone = [MAX_F for _ in pheromone]  # フェロモン最大値
 
 
 class Ant:
     def __init__(
-        self, current: int, destination: int, route: list[int], width: list[int]
+        self,
+        current: int,
+        destination: int,
+        route: list[int],
+        width: list[int],
+        strategy: str,
     ):
         self.current = current  # 現在のノード
         self.destination = destination  # コンテンツ保持ノード
         self.route = route  # 辿ってきた経路の配列
         self.width = width  # 辿ってきた経路の帯域の配列
+        self.strategy = strategy  # 蟻の探索戦略
 
 
 class Interest:
@@ -53,6 +61,19 @@ class Rand(Interest):
 
 
 # /////////////////////////////////////////////////関数定義/////////////////////////////////////////////////
+
+
+# 戦略に応じた蟻の生成
+def generate_ants(start_node, goal_node, generation, total_generation):
+    ants = []
+    choices = ["random"] * 45 + ["width"] * 45 + ["pheromone"] * 10
+    for _ in range(ANT_NUM):
+        if generation < total_generation * 0.07:
+            strategy = secrets.choice(choices)
+        else:
+            strategy = "adaptive"
+        ants.append(Ant(start_node, goal_node, [start_node], [], strategy))
+    return ants
 
 
 def volatilize(node_list: list[Node]) -> None:
@@ -89,17 +110,71 @@ def update_pheromone(ant: Ant, node_list: list[Node]) -> None:
         after_node: Node = node_list[ant.route[i]]
         # before_nodeからafter_nodeへのフェロモン値を変更
         index = before_node.connection.index(ant.route[i])
-        # i-1番からi番ノードのフェロモン値を加算
-        before_node.pheromone[index] += min(ant.width)
-        # option before_node.pheromone[index] += int(( sum(ant.width) / len(ant.width) ))
-        # option before_node.pheromone[index] += before_node.width[index] * int(( sum(ant.width) / len(ant.width) ))
 
-        if before_node.pheromone[index] > MAX_F:
-            before_node.pheromone[index] = MAX_F
+        # インデックスエラーをチェック
+        if index >= len(before_node.pheromone) or index >= len(
+            before_node.max_pheromone
+        ):
+            print(f"Error: Index {index} out of range for node {ant.route[i - 1]}")
+            print(f"Connections: {before_node.connection}")
+            print(f"Pheromones: {before_node.pheromone}")
+            print(f"Max Pheromones: {before_node.max_pheromone}")
+            continue
+
+        # フェロモン値を更新
+        before_node.pheromone[index] += min(ant.width) * 10
+        if before_node.pheromone[index] > before_node.max_pheromone[index]:
+            before_node.pheromone[index] = before_node.max_pheromone[index]
+
+
+def calculate_probabilities(pheromones, alpha):
+    """
+    フェロモン値に基づいて各候補ノードの選択確率を計算する関数
+
+    :param pheromones: 候補ノードのフェロモン値のリスト
+    :param alpha: フェロモンの重み
+    :return: フェロモン値に基づいた確率のリスト
+    """
+    # フェロモン値のα乗の総和を計算
+    total = sum(pher**alpha for pher in pheromones)
+    # 各フェロモン値のα乗を総和で割って確率を計算
+    probabilities = [(pher**alpha) / total for pher in pheromones]
+    return probabilities
+
+
+def update_alpha(current_gen, total_gen, base_alpha=1.0, max_alpha=5.0):
+    """
+    現在の世代に応じてalpha値を更新する関数。
+    alpha値は時間とともに増加し、フェロモンの影響を強める。
+    """
+    alpha_range = max_alpha - base_alpha
+    alpha = base_alpha + (alpha_range * (current_gen / total_gen))
+    return alpha
+
+
+def weighted_choice(choices, weights):
+    """
+    重み付けされた選択を行うカスタム関数。
+
+    :param choices: 選択肢のリスト
+    :param weights: 重みのリスト
+    :return: 選択された要素
+    """
+    scaled_weights = [int(weight * 100) for weight in weights]
+    total = sum(scaled_weights)
+    cum_weights = [sum(scaled_weights[: i + 1]) for i in range(len(scaled_weights))]
+    x = secrets.randbelow(total)
+
+    for choice, cum_weight in zip(choices, cum_weights):
+        if x < cum_weight:
+            return choice
 
 
 def ant_next_node(
-    ant_list: list[Ant], node_list: list[Node], current_generation: int
+    ant_list: list[Ant],
+    node_list: list[Node],
+    current_generation: int,
+    ant_log: list[int],
 ) -> None:
     # antの次のノードを決定
     # 繰り返し中にリストから削除を行うためreversed
@@ -128,25 +203,28 @@ def ant_next_node(
                 candidacy_pheromones.append(pheromone[index])
                 candidacy_width.append(width[index])
 
-            # weight_width = [i ** BETA for i in candidacy_width]
-            # weighting = [
-            #     x*y for (x, y) in zip(candidacy_pheromones, weight_width)]
-
-            # ランダム性を導入する割合を計算
-            random_factor = 0.1 + 0.9 * (GENERATION - current_generation) / GENERATION
-            if random.random() < random_factor:
-                # ランダムに次のノードを選択
-                next_node = random.choice(diff_list)
-            else:
-                # フェロモン濃度が最も高いものを選択(最大値が複数ある場合はランダム)
+            if ant.strategy == "random":
+                next_node = secrets.choice(diff_list)
+            elif ant.strategy == "width":
+                max_width_index = [
+                    i
+                    for i, w in enumerate(candidacy_width)
+                    if w == max(candidacy_width)
+                ]
+                next_node = diff_list[secrets.choice(max_width_index)]
+            elif ant.strategy == "pheromone":
                 max_pheromone_index = [
                     i
                     for i, x in enumerate(candidacy_pheromones)
                     if x == max(candidacy_pheromones)
                 ]
-                next_node = diff_list[random.choice(max_pheromone_index)]
+                next_node = diff_list[secrets.choice(max_pheromone_index)]
+            else:  # フェロモン重視の戦略
+                dynamic_alpha = update_alpha(current_generation, GENERATION)
+                total_pheromone = sum(candidacy_pheromones)
+                probabilities = [(p) / total_pheromone for p in candidacy_pheromones]
+                next_node = weighted_choice(diff_list, probabilities)
 
-            # antの属性更新(現在地更新・ノード番号追加・帯域の配列に帯域を追加)
             ant.current = next_node
             ant.route.append(next_node)
             ant.width.append(width[connection.index(next_node)])
@@ -154,6 +232,7 @@ def ant_next_node(
             # antが目的ノードならばノードにフェロモンの付加後ant_listから削除
             if ant.current == ant.destination:
                 update_pheromone(ant, node_list)
+                ant_log.append(min(ant.width))
                 ant_list.remove(ant)
                 print("Ant Goal! → " + str(ant.route) + " : " + str(min(ant.width)))
 
@@ -249,7 +328,7 @@ def rand_next_node(
 
         # 候補先がある場合
         else:
-            next_node = random.choice(diff_list)
+            next_node = secrets.choice(diff_list)
 
             # randの属性更新
             # もし現在ノードから次ノードの帯域幅が今までの最小帯域より小さかったら更新
@@ -273,6 +352,7 @@ def rand_next_node(
                 if max(rand_log) != 0:
                     rand_log[-1] = max(rand_log)
                 print("Rand TTL! →" + str(rand.route))
+        # print(rand_log)
 
 
 def show_node_info(node_list: list[Node]) -> None:
@@ -422,14 +502,63 @@ def set_node_min_pheromone_by_degree(node_list: list[Node]) -> None:
         node.pheromone = [node.min_pheromone for _ in node.pheromone]
 
 
+def set_node_max_pheromone_by_width(node_list: list[Node]) -> None:
+    # 各nodeのmax_pheromone属性の値を帯域幅に基づいて決定
+    for node in node_list:
+        node.max_pheromone = [width**3 for width in node.width]
+
+
 def set_node_min_pheromon_uniformly(node_list: list[Node]) -> None:
     for node in node_list:
         node.min_pheromone = MIN_F
 
 
+def dynamic_topology_change(node_list, generation, total_generation, rand_log):
+    # ノードやエッジの追加
+    if generation % 100 == 0:  # 100世代ごとに実施
+        new_node_index = len(node_list)
+        node_list.append(Node([], [], []))
+        for _ in range(3):  # 新しいノードを3つのランダムな既存ノードに接続
+            target_node = random.randint(0, new_node_index - 1)
+            width = random.randint(1, 10) * 10
+            connect_node_twoway(node_list, new_node_index, target_node, width, width)
+
+    # ノードやエッジの削除
+    if generation % 150 == 0:  # 150世代ごとに実施
+        if len(node_list) > 3:
+            remove_node_index = random.randint(0, len(node_list) - 1)
+            # 削除対象のノードの接続を全て削除
+            for node in node_list:
+                if remove_node_index in node.connection:
+                    index = node.connection.index(remove_node_index)
+                    node.connection.pop(index)
+                    node.pheromone.pop(index)
+                    node.width.pop(index)
+
+            # ノードリストからノードを削除
+            node_list.pop(remove_node_index)
+
+            # インデックスを調整
+            for node in node_list:
+                node.connection = [
+                    i - 1 if i > remove_node_index else i for i in node.connection
+                ]
+
+            # フェロモンと最大フェロモンのリストを再調整
+            for node in node_list:
+                while len(node.pheromone) > len(node.connection):
+                    node.pheromone.pop()
+                while len(node.pheromone) < len(node.connection):
+                    node.pheromone.append(MIN_F)
+
+                while len(node.max_pheromone) > len(node.connection):
+                    node.max_pheromone.pop()
+                while len(node.max_pheromone) < len(node.connection):
+                    node.max_pheromone.append(MAX_F)
+
+
 # /////////////////////////////////////////////////Main/////////////////////////////////////////////////
 if __name__ == "__main__":
-
     # シミュレーション回数を指定
     for _ in range(100):
 
@@ -440,6 +569,7 @@ if __name__ == "__main__":
         interest_log: list[int] = []  # interestのログ用リスト
         rand_list: list[Rand] = []  # Randオブジェクト格納リスト
         rand_log: list[int] = []  # Randのログ用リスト
+        ant_log: list[int] = []  # Antのログ用リスト
 
         # ! -------------------------------------------------グラフ作成-------------------------------------------------
         print(
@@ -458,16 +588,17 @@ if __name__ == "__main__":
 
         print(f"Route  ===  {route}")
 
-        # show_node_info(node_list) # debug
-
         # 各ノードのフェロモン最小値を決定
-        # option set_node_min_pheromon_uniformly(node_list)
         set_node_min_pheromone_by_degree(node_list)
 
-        # show_node_info(node_list) # debug
+        # 各ノードのフェロモン最大値を決定
+        set_node_max_pheromone_by_width(node_list)
 
         # ! -------------------------------------------------探索-------------------------------------------------
         for gen in range(GENERATION):
+            # ネットワーク構造を変更する。
+            # TODO: ランダムの方が保持している最適値はルート的に存在しているかを確認する。
+            dynamic_topology_change(node_list, gen, GENERATION, rand_log)
             print(
                 "\n-------------------------------------Start of Search Gen"
                 + str(gen)
@@ -476,18 +607,25 @@ if __name__ == "__main__":
 
             # Antによるフェロモン付加フェーズ
             # Antを配置
-            ant_list.extend(
-                [Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)]
-            )
+            ant_list = generate_ants(START_NODE, GOAL_NODE, gen, GENERATION)
             # Antの移動
             for _ in range(TTL):
-                ant_next_node(ant_list, node_list, gen)
+                ant_next_node(ant_list, node_list, gen, ant_log)
 
             # 揮発フェーズ
             # option volatilize(node_list)
             volatilize(node_list)
 
-            # ! -------------------------------------------------評価-------------------------------------------------
+            # Randによる評価
+            # Randを配置
+            rand_list = [
+                Rand(START_NODE, GOAL_NODE, [START_NODE], W) for _ in range(ANT_NUM)
+            ]
+            # Randの移動
+            for _ in range(TTL):
+                rand_next_node(rand_list, node_list, rand_log)
+
+            # Interestによる評価
             print(
                 "\n------------------------------------------Start of Evaluation------------------------------------------\n"
             )
@@ -498,29 +636,17 @@ if __name__ == "__main__":
             for _ in range(TTL):
                 interest_next_node(interest_list, node_list, interest_log)
 
-            # Randによる評価
-            # Randを配置
-            rand_list.extend(
-                [Rand(START_NODE, GOAL_NODE, [START_NODE], W) for _ in range(ANT_NUM)]
-            )
-            # Randの移動
-            for _ in range(TTL):
-                rand_next_node(rand_list, node_list, rand_log)
-
         # ! -------------------------------------------------結果の処理-------------------------------------------------
+        with open("./simulation_result/log_interest.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(interest_log)
 
-        # show_node_info(node_list)
+        with open("./simulation_result/log_rand.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(rand_log)
 
-        # print(interest_log)
-        f = open("./simulation_result/log_interest.csv", "a", newline="")
-        writer = csv.writer(f)
-        writer.writerow(interest_log)
-        f.close()
-
-        # print(rand_log)
-        f = open("./simulation_result/log_rand.csv", "a", newline="")
-        writer = csv.writer(f)
-        writer.writerow(rand_log)
-        f.close()
+        with open("./simulation_result/log_ant.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(ant_log)
 
         # visualize_graph(node_list)
