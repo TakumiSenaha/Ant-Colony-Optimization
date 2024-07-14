@@ -332,7 +332,7 @@ def rand_next_node(
                 if not best_routes:
                     rand_log[-1] = 0
                 else:
-                    rand_log[-1] = max(best_routes, key=lambda x: x[1])[1]
+                    rand_log[-1] = 0
             print("Rand Can't Find Route! → " + str(rand.route))
 
         # 候補先がある場合
@@ -374,7 +374,7 @@ def rand_next_node(
                 rand_list.remove(rand)
                 rand_log.append(0)
                 if max(rand_log) != 0:
-                    rand_log[-1] = max(best_routes, key=lambda x: x[1])[1]
+                    rand_log[-1] = 0
                 print("Rand TTL! →" + str(rand.route))
 
 
