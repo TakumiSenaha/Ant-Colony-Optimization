@@ -17,7 +17,7 @@ ALPHA = 1.0  # フェロモンの重み
 BETA = 2.0  # ヒューリスティックの重み
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 1000  # ant，interestを放つ回数(世代)
+GENERATION = 400  # ant，interestを放つ回数(世代)
 
 # /////////////////////////////////////////////////クラス定義/////////////////////////////////////////////////
 
@@ -58,6 +58,9 @@ class Interest:
 class Rand(Interest):
     def __init__(self, current: int, destination: int, route: list[int], minwidth: int):
         super().__init__(current, destination, route, minwidth)
+        self.best_routes: list[tuple[list[int], int]] = (
+            []
+        )  # 最高経路と帯域幅のタプルリスト
 
 
 # /////////////////////////////////////////////////関数定義/////////////////////////////////////////////////
@@ -305,7 +308,10 @@ def interest_next_node(
 
 
 def rand_next_node(
-    rand_list: list[Rand], node_list: list[Node], rand_log: list[int]
+    rand_list: list[Rand],
+    node_list: list[Node],
+    rand_log: list[int],
+    best_routes: list[tuple[list[int], int]],
 ) -> None:
     # randの次のノードを決定
     # 繰り返し中にリストから削除を行うためreversed
@@ -323,7 +329,10 @@ def rand_next_node(
             rand_list.remove(rand)
             rand_log.append(0)
             if max(rand_log) != 0:
-                rand_log[-1] = max(rand_log)
+                if not best_routes:
+                    rand_log[-1] = 0
+                else:
+                    rand_log[-1] = max(best_routes, key=lambda x: x[1])[1]
             print("Rand Can't Find Route! → " + str(rand.route))
 
         # 候補先がある場合
@@ -340,8 +349,23 @@ def rand_next_node(
             # randが目的ノードならばrand_listから削除
             if rand.current == rand.destination:
                 rand_log.append(rand.minwidth)
-                if max(rand_log) != rand.minwidth:
-                    rand_log[-1] = max(rand_log)
+                # best_routesが未定義または空の場合のチェック
+                if not best_routes:
+                    print(f"not best_routes {rand.minwidth}")
+                    # rand_logの最後の要素をrand.minwidthで更新
+                    rand_log[-1] = rand.minwidth
+                    # 新しいベストルートを追加
+                    best_routes.append((rand.route.copy(), rand.minwidth))
+                    print(rand_log)
+                else:
+                    max_minwidth_in_best_routes = max(best_routes, key=lambda x: x[1])[
+                        1
+                    ]
+                    if max_minwidth_in_best_routes > rand.minwidth:
+                        rand_log[-1] = max_minwidth_in_best_routes
+                    else:
+                        best_routes.append((rand.route.copy(), rand.minwidth))
+                        rand_log[-1] = rand.minwidth
                 rand_list.remove(rand)
                 print("Rand Goal! → " + str(rand.route) + " : " + str(rand.minwidth))
 
@@ -350,9 +374,8 @@ def rand_next_node(
                 rand_list.remove(rand)
                 rand_log.append(0)
                 if max(rand_log) != 0:
-                    rand_log[-1] = max(rand_log)
+                    rand_log[-1] = max(best_routes, key=lambda x: x[1])[1]
                 print("Rand TTL! →" + str(rand.route))
-        # print(rand_log)
 
 
 def show_node_info(node_list: list[Node]) -> None:
@@ -513,7 +536,30 @@ def set_node_min_pheromon_uniformly(node_list: list[Node]) -> None:
         node.min_pheromone = MIN_F
 
 
-def dynamic_topology_change(node_list, generation, total_generation, rand_log):
+def validate_best_routes(
+    node_list: list[Node], best_routes: list[tuple[list[int], int]]
+) -> list[tuple[list[int], int]]:
+    valid_routes = []
+    for route, minwidth in best_routes:
+        print(f"Checking route: {route}")
+        valid = True
+        for i in range(len(route) - 1):
+            if route[i + 1] not in node_list[route[i]].connection:
+                valid = False
+                print(f"Invalid segment: {route[i]} -> {route[i + 1]}")
+                break
+        if valid:
+            valid_routes.append((route, minwidth))
+            print(f"Valid route found: {route} with min width {minwidth}")
+    if not valid_routes:
+        print("No valid routes found")
+    return valid_routes
+
+
+def dynamic_topology_change(
+    node_list, generation, total_generation, rand_log, best_routes
+):
+    print(f"Generation: {generation}")
     # ノードやエッジの追加
     if generation % 100 == 0:  # 100世代ごとに実施
         new_node_index = len(node_list)
@@ -522,6 +568,19 @@ def dynamic_topology_change(node_list, generation, total_generation, rand_log):
             target_node = random.randint(0, new_node_index - 1)
             width = random.randint(1, 10) * 10
             connect_node_twoway(node_list, new_node_index, target_node, width, width)
+
+        # print("After adding nodes:")
+        # show_node_info(node_list)  # ノード情報を出力
+
+        # ルートの存在確認
+        valid_routes = validate_best_routes(node_list, best_routes)
+        if valid_routes:
+            best_routes[:] = valid_routes
+        else:
+            print(
+                "No valid routes found. Updating best routes based on new exploration."
+            )
+            best_routes.clear()
 
     # ノードやエッジの削除
     if generation % 150 == 0:  # 150世代ごとに実施
@@ -556,6 +615,19 @@ def dynamic_topology_change(node_list, generation, total_generation, rand_log):
                 while len(node.max_pheromone) < len(node.connection):
                     node.max_pheromone.append(MAX_F)
 
+            # print("After removing nodes:")
+            # show_node_info(node_list)  # ノード情報を出力
+
+            # ルートの存在確認
+            valid_routes = validate_best_routes(node_list, best_routes)
+            if valid_routes:
+                best_routes[:] = valid_routes
+            else:
+                print(
+                    "No valid routes found. Updating best routes based on new exploration."
+                )
+                best_routes.clear()
+
 
 # /////////////////////////////////////////////////Main/////////////////////////////////////////////////
 if __name__ == "__main__":
@@ -570,6 +642,7 @@ if __name__ == "__main__":
         rand_list: list[Rand] = []  # Randオブジェクト格納リスト
         rand_log: list[int] = []  # Randのログ用リスト
         ant_log: list[int] = []  # Antのログ用リスト
+        best_routes: list[tuple[list[int], int]] = []  # 最高経路を記録するリスト
 
         # ! -------------------------------------------------グラフ作成-------------------------------------------------
         print(
@@ -598,7 +671,8 @@ if __name__ == "__main__":
         for gen in range(GENERATION):
             # ネットワーク構造を変更する。
             # TODO: ランダムの方が保持している最適値はルート的に存在しているかを確認する。
-            dynamic_topology_change(node_list, gen, GENERATION, rand_log)
+            dynamic_topology_change(node_list, gen, GENERATION, rand_log, best_routes)
+
             print(
                 "\n-------------------------------------Start of Search Gen"
                 + str(gen)
@@ -623,7 +697,7 @@ if __name__ == "__main__":
             ]
             # Randの移動
             for _ in range(TTL):
-                rand_next_node(rand_list, node_list, rand_log)
+                rand_next_node(rand_list, node_list, rand_log, best_routes)
 
             # Interestによる評価
             print(
