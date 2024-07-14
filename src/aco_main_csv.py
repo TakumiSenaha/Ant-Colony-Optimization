@@ -26,6 +26,7 @@ class Node:
         self.pheromone = pheromone  # 接続先ノードとのフェロモンの配列
         self.width = width  # 接続先ノードとの帯域の配列
         self.min_pheromone = MIN_F  # フェロモン最小値
+        self.max_pheromone = [MAX_F for _ in pheromone]  # フェロモン最大値
 
 
 class Ant:
@@ -98,7 +99,10 @@ def update_pheromone(ant: Ant, node_list: list[Node]) -> None:
 
 
 def ant_next_node(
-    ant_list: list[Ant], node_list: list[Node], current_generation: int
+    ant_list: list[Ant],
+    node_list: list[Node],
+    current_generation: int,
+    ant_log: list[int],
 ) -> None:
     # antの次のノードを決定
     # 繰り返し中にリストから削除を行うためreversed
@@ -151,11 +155,13 @@ def ant_next_node(
             # antが目的ノードならばノードにフェロモンの付加後ant_listから削除
             if ant.current == ant.destination:
                 update_pheromone(ant, node_list)
+                ant_log.append(min(ant.width))
                 ant_list.remove(ant)
                 print("Ant Goal! → " + str(ant.route) + " : " + str(min(ant.width)))
 
             # antがTTLならばant_listから削除
             elif len(ant.route) == TTL:
+                ant_log.append(0)
                 ant_list.remove(ant)
                 print("Ant TTL! → " + str(ant.route))
 
@@ -419,6 +425,12 @@ def set_node_min_pheromone_by_degree(node_list: list[Node]) -> None:
         node.pheromone = [node.min_pheromone for _ in node.pheromone]
 
 
+def set_node_max_pheromone_by_width(node_list: list[Node]) -> None:
+    # 各nodeのmax_pheromone属性の値を帯域幅に基づいて決定
+    for node in node_list:
+        node.max_pheromone = [width**3 for width in node.width]
+
+
 def set_node_min_pheromon_uniformly(node_list: list[Node]) -> None:
     for node in node_list:
         node.min_pheromone = MIN_F
@@ -433,6 +445,7 @@ if __name__ == "__main__":
         # ! -------------------------------------------------初期化-------------------------------------------------
         node_list: list[Node] = []  # Nodeオブジェクト格納リスト
         ant_list: list[Ant] = []  # Antオブジェクト格納リスト
+        ant_log: list[int] = []  # Antのログ用リスト
         interest_list: list[Interest] = []  # Interestオブジェクト格納リスト
         interest_log: list[int] = []  # interestのログ用リスト
         rand_list: list[Rand] = []  # Randオブジェクト格納リスト
@@ -468,6 +481,9 @@ if __name__ == "__main__":
         # option set_node_min_pheromon_uniformly(node_list)
         set_node_min_pheromone_by_degree(node_list)
 
+        # 各ノードのフェロモン最大値を決定
+        set_node_max_pheromone_by_width(node_list)
+
         # show_node_info(node_list) # debug
 
         # ! -------------------------------------------------探索-------------------------------------------------
@@ -485,7 +501,7 @@ if __name__ == "__main__":
             )
             # Antの移動
             for _ in range(TTL):
-                ant_next_node(ant_list, node_list, gen)
+                ant_next_node(ant_list, node_list, gen, ant_log)
 
             # 揮発フェーズ
             # option volatilize(node_list)
@@ -514,6 +530,12 @@ if __name__ == "__main__":
         # ! -------------------------------------------------結果の処理-------------------------------------------------
 
         # show_node_info(node_list)
+
+        # print(ant_log)
+        f = open("./simulation_result/ant_log.csv", "a", newline="")
+        writer = csv.writer(f)
+        writer.writerow(ant_log)
+        f.close()
 
         # print(interest_log)
         f = open("./simulation_result/log_interest.csv", "a", newline="")

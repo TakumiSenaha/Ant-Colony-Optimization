@@ -241,6 +241,7 @@ def ant_next_node(
 
             # antがTTLならばant_listから削除
             elif len(ant.route) == TTL:
+                ant_log.append(0)
                 ant_list.remove(ant)
                 print("Ant TTL! → " + str(ant.route))
 
