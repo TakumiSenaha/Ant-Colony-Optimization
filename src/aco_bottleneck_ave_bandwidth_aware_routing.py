@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 2000  # ant，interestを放つ回数(世代)
+GENERATION = 400  # ant，interestを放つ回数(世代)
 
 # /////////////////////////////////////////////////クラス定義/////////////////////////////////////////////////
 
@@ -241,7 +241,7 @@ def rand_next_node(
             rand_list.remove(rand)
             rand_log.append(0)
             if max(rand_log) != 0:
-                rand_log[-1] = max(rand_log)
+                rand_log[-1] = 0
             print("Rand Can't Find Route! → " + str(rand.route))
 
         # 候補先がある場合
@@ -268,7 +268,7 @@ def rand_next_node(
                 rand_list.remove(rand)
                 rand_log.append(0)
                 if max(rand_log) != 0:
-                    rand_log[-1] = max(rand_log)
+                    rand_log[-1] = 0
                 print("Rand TTL! →" + str(rand.route))
 
 

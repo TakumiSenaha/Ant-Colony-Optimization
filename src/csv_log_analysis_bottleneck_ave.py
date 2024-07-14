@@ -28,7 +28,7 @@ def calculate_average_bandwidth_per_generation(log_data):
 # ログデータを読み込む
 interest_log_data = read_log("./simulation_result/log_interest.csv")
 rand_log_data = read_log("./simulation_result/log_rand.csv")
-ant_log_data = read_log("./simulation_result/log_ant.csv")
+# ant_log_data = read_log("./simulation_result/log_ant.csv")
 
 # 平均値を計算
 interest_avg_bandwidth_per_generation = calculate_average_bandwidth_per_generation(
@@ -37,9 +37,9 @@ interest_avg_bandwidth_per_generation = calculate_average_bandwidth_per_generati
 rand_avg_bandwidth_per_generation = calculate_average_bandwidth_per_generation(
     rand_log_data
 )
-ant_avg_bandwidth_per_generation = calculate_average_bandwidth_per_generation(
-    ant_log_data
-)
+# ant_avg_bandwidth_per_generation = calculate_average_bandwidth_per_generation(
+#     ant_log_data
+# )
 
 # 結果をプロット
 plt.figure(figsize=(10, 6))
