@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 400  # ant，interestを放つ回数(世代)
+GENERATION = 10000  # ant，interestを放つ回数(世代)
 
 # /////////////////////////////////////////////////クラス定義/////////////////////////////////////////////////
 
@@ -26,6 +26,7 @@ class Node:
         self.pheromone = pheromone  # 接続先ノードとのフェロモンの配列
         self.width = width  # 接続先ノードとの帯域の配列
         self.min_pheromone = MIN_F  # フェロモン最小値
+        self.max_pheromone = [MAX_F for _ in pheromone]  # フェロモン最大値
 
 
 class Ant:
@@ -89,12 +90,12 @@ def update_pheromone(ant: Ant, node_list: list[Node]) -> None:
         # before_nodeからafter_nodeへのフェロモン値を変更
         index = before_node.connection.index(ant.route[i])
         # i-1番からi番ノードのフェロモン値を加算
-        before_node.pheromone[index] += min(ant.width)
+        before_node.pheromone[index] += min(ant.width) * 10
         # option before_node.pheromone[index] += int(( sum(ant.width) / len(ant.width) ))
         # option before_node.pheromone[index] += before_node.width[index] * int(( sum(ant.width) / len(ant.width) ))
 
-        if before_node.pheromone[index] > MAX_F:
-            before_node.pheromone[index] = MAX_F
+        if before_node.pheromone[index] > before_node.max_pheromone[index]:
+            before_node.pheromone[index] = before_node.max_pheromone[index]
 
 
 def ant_next_node(
@@ -127,21 +128,29 @@ def ant_next_node(
                 candidacy_pheromones.append(pheromone[index])
                 candidacy_width.append(width[index])
 
-            # weight_width = [i ** BETA for i in candidacy_width]
-            # weighting = [
-            #     x*y for (x, y) in zip(candidacy_pheromones, weight_width)]
-
-            # フェロモンの影響力を世代数に応じて調整
-            pheromone_influence = min(
-                math.exp(current_generation / GENERATION) - 1, BETA + 0.1
-            )
             weight_width = [i**BETA for i in candidacy_width]
-            weighting = [
-                (pheromone**pheromone_influence) * width_weight
-                for pheromone, width_weight in zip(candidacy_pheromones, weight_width)
-            ]
+            weighting = [x * y for (x, y) in zip(candidacy_pheromones, weight_width)]
 
             next_node = random.choices(diff_list, k=1, weights=weighting)[0]
+
+            # max_pheromone_index = [
+            #     i
+            #     for i, x in enumerate(candidacy_pheromones)
+            #     if x == max(candidacy_pheromones)
+            # ]
+            # next_node = diff_list[random.choice(max_pheromone_index)]
+
+            # フェロモンの影響力を世代数に応じて調整
+            # pheromone_influence = min(
+            #     math.exp(current_generation / GENERATION) - 1, BETA + 0.1
+            # )
+            # weight_width = [i**BETA for i in candidacy_width]
+            # weighting = [
+            #     (pheromone**pheromone_influence) * width_weight
+            #     for pheromone, width_weight in zip(candidacy_pheromones, weight_width)
+            # ]
+
+            # next_node = random.choices(diff_list, k=1, weights=weighting)[0]
 
             # antの属性更新(現在地更新・ノード番号追加・帯域の配列に帯域を追加)
             ant.current = next_node
@@ -419,6 +428,12 @@ def set_node_min_pheromone_by_degree(node_list: list[Node]) -> None:
         node.pheromone = [node.min_pheromone for _ in node.pheromone]
 
 
+def set_node_max_pheromone_by_width(node_list: list[Node]) -> None:
+    # 各nodeのmax_pheromone属性の値を帯域幅に基づいて決定
+    for node in node_list:
+        node.max_pheromone = [width**3 for width in node.width]
+
+
 def set_node_min_pheromon_uniformly(node_list: list[Node]) -> None:
     for node in node_list:
         node.min_pheromone = MIN_F
@@ -455,18 +470,21 @@ if __name__ == "__main__":
 
         print(f"Route  ===  {route}")
 
-        # routeの帯域を100に書き換え
-        for i in range(1, len(route)):
-            before_node: Node = node_list[route[i - 1]]
+        # # routeの帯域を100に書き換え
+        # for i in range(1, len(route)):
+        #     before_node: Node = node_list[route[i - 1]]
 
-            index = before_node.connection.index(route[i])
-            before_node.width[index] = 100
+        #     index = before_node.connection.index(route[i])
+        #     before_node.width[index] = 100
 
         # show_node_info(node_list) # debug
 
         # 各ノードのフェロモン最小値を決定
         # option set_node_min_pheromon_uniformly(node_list)
         set_node_min_pheromone_by_degree(node_list)
+
+        # 各ノードのフェロモン最大値を決定
+        set_node_max_pheromone_by_width(node_list)
 
         # show_node_info(node_list) # debug
 
