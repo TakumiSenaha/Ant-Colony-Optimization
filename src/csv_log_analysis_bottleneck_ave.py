@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-# CSVファイルを読み込む
 def read_log(file_path):
     with open(file_path, "r") as f:
         reader = csv.reader(f)
@@ -44,22 +43,22 @@ rand_avg_bandwidth_per_generation = calculate_average_bandwidth_per_generation(
 
 # 結果をプロット
 plt.figure(figsize=(10, 6))
-plt.scatter(
+plt.plot(
     range(len(interest_avg_bandwidth_per_generation)),
     interest_avg_bandwidth_per_generation,
     color="blue",
-    s=5,
+    label="Interest",
 )
-plt.scatter(
+plt.plot(
     range(len(rand_avg_bandwidth_per_generation)),
     rand_avg_bandwidth_per_generation,
     color="orange",
-    s=5,
+    label="Rand",
 )
-# plt.scatter(range(len(ant_avg_bandwidth_per_generation)), ant_avg_bandwidth_per_generation, color="green", s=5)
+# plt.plot(range(len(ant_avg_bandwidth_per_generation)), ant_avg_bandwidth_per_generation, color="green", label="Ant")
 
 plt.xlabel("世代", fontsize=20)
-plt.ylabel("平均ボトルネック帯域 [Mpbs]", fontsize=20)
+plt.ylabel("平均ボトルネック帯域 [Mbps]", fontsize=20)
 
 # 縦軸と横軸の囲いを表示
 ax = plt.gca()
@@ -71,5 +70,5 @@ ax.spines["bottom"].set_visible(True)
 # フォントサイズを2倍に設定
 ax.tick_params(axis="both", which="major", labelsize=20)
 
-plt.grid(True)
+plt.grid(False)
 plt.show()

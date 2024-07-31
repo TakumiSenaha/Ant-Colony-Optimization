@@ -1,6 +1,6 @@
 import csv
 
-import japanize_matplotlib
+import japanize_matplotlib  # 日本語フォントを使用するためのインポート
 import matplotlib.pyplot as plt
 
 
@@ -37,17 +37,17 @@ rand_failure_rate_per_generation = calculate_failure_rate_per_generation(rand_lo
 
 # 結果をプロット
 plt.figure(figsize=(10, 6))
-plt.scatter(
+plt.plot(
     range(len(interest_failure_rate_per_generation)),
     interest_failure_rate_per_generation,
+    label="Interest",
     color="blue",
-    s=5,
 )
-plt.scatter(
+plt.plot(
     range(len(rand_failure_rate_per_generation)),
     rand_failure_rate_per_generation,
+    label="Rand",
     color="orange",
-    s=5,
 )
 
 plt.xlabel("世代", fontsize=20)
@@ -63,5 +63,5 @@ ax.spines["bottom"].set_visible(True)
 # フォントサイズを2倍に設定
 ax.tick_params(axis="both", which="major", labelsize=20)
 
-plt.grid(True)
+plt.grid(False)
 plt.show()
