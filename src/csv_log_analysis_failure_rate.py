@@ -1,9 +1,9 @@
 import csv
 
+import japanize_matplotlib
 import matplotlib.pyplot as plt
 
 
-# CSVファイルを読み込む
 def read_log(file_path):
     with open(file_path, "r") as f:
         reader = csv.reader(f)
@@ -37,13 +37,31 @@ rand_failure_rate_per_generation = calculate_failure_rate_per_generation(rand_lo
 
 # 結果をプロット
 plt.figure(figsize=(10, 6))
-plt.plot(interest_failure_rate_per_generation, label="Interest")
-plt.plot(rand_failure_rate_per_generation, label="Rand")
-plt.xlabel("Generation")
-plt.ylabel("Failure Rate")
-plt.title("Failure Rate per Generation")
-plt.legend()
+plt.scatter(
+    range(len(interest_failure_rate_per_generation)),
+    interest_failure_rate_per_generation,
+    color="blue",
+    s=5,
+)
+plt.scatter(
+    range(len(rand_failure_rate_per_generation)),
+    rand_failure_rate_per_generation,
+    color="orange",
+    s=5,
+)
+
+plt.xlabel("世代", fontsize=20)
+plt.ylabel("パケットロス率（探索失敗率）[%]", fontsize=20)
+
+# 縦軸と横軸の囲いを表示
+ax = plt.gca()
+ax.spines["top"].set_visible(False)
+ax.spines["right"].set_visible(False)
+ax.spines["left"].set_visible(True)
+ax.spines["bottom"].set_visible(True)
+
+# フォントサイズを2倍に設定
+ax.tick_params(axis="both", which="major", labelsize=20)
+
 plt.grid(True)
-plt.show()
-plt.show()
 plt.show()
