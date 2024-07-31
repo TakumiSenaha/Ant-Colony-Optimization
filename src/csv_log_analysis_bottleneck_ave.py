@@ -1,5 +1,6 @@
 import csv
 
+import japanize_matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -43,14 +44,32 @@ rand_avg_bandwidth_per_generation = calculate_average_bandwidth_per_generation(
 
 # 結果をプロット
 plt.figure(figsize=(10, 6))
-plt.plot(interest_avg_bandwidth_per_generation, label="Interest")
-plt.plot(rand_avg_bandwidth_per_generation, label="Rand")
-# plt.plot(ant_avg_bandwidth_per_generation, label="Ant (Pheromone)")
-plt.xlabel("Generation")
-plt.ylabel("Average Bottleneck Bandwidth")
-plt.title("Average Bottleneck Bandwidth per Generation")
-plt.legend()
+plt.scatter(
+    range(len(interest_avg_bandwidth_per_generation)),
+    interest_avg_bandwidth_per_generation,
+    color="blue",
+    s=5,
+)
+plt.scatter(
+    range(len(rand_avg_bandwidth_per_generation)),
+    rand_avg_bandwidth_per_generation,
+    color="orange",
+    s=5,
+)
+# plt.scatter(range(len(ant_avg_bandwidth_per_generation)), ant_avg_bandwidth_per_generation, color="green", s=5)
+
+plt.xlabel("世代", fontsize=20)
+plt.ylabel("平均ボトルネック帯域", fontsize=20)
+
+# 縦軸と横軸の囲いを表示
+ax = plt.gca()
+ax.spines["top"].set_visible(False)
+ax.spines["right"].set_visible(False)
+ax.spines["left"].set_visible(True)
+ax.spines["bottom"].set_visible(True)
+
+# フォントサイズを2倍に設定
+ax.tick_params(axis="both", which="major", labelsize=20)
+
 plt.grid(True)
-plt.show()
-plt.show()
 plt.show()
