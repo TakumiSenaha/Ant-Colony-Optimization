@@ -59,7 +59,7 @@ plt.scatter(
 # plt.scatter(range(len(ant_avg_bandwidth_per_generation)), ant_avg_bandwidth_per_generation, color="green", s=5)
 
 plt.xlabel("世代", fontsize=20)
-plt.ylabel("平均ボトルネック帯域", fontsize=20)
+plt.ylabel("平均ボトルネック帯域 [Mpbs]", fontsize=20)
 
 # 縦軸と横軸の囲いを表示
 ax = plt.gca()

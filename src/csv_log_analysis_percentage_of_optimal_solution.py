@@ -1,5 +1,6 @@
 import csv
 
+import japanize_matplotlib
 import matplotlib.pyplot as plt
 
 csv_file_name = "./simulation_result/log_interest.csv"
@@ -42,6 +43,9 @@ plt.scatter(x_values, y_values, color="blue", s=5)  # 点のサイズを調整
 
 # グラフの設定
 plt.ylim((0, 100))
+
+plt.xlabel("世代", fontsize=20)
+plt.ylabel("最適経路の割合 [%]", fontsize=20)
 
 # 縦軸と横軸の囲いを表示
 ax = plt.gca()
