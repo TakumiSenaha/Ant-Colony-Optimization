@@ -14,10 +14,10 @@ MAX_F = 1000000  # フェロモン最大値
 TTL = 100  # antのTime to Live
 W = 1000  # 帯域幅初期値
 ALPHA = 1.0  # フェロモンの重み
-BETA = 2.0  # ヒューリスティックの重み
+BETA = 1.0  # ヒューリスティックの重み
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 400  # ant，interestを放つ回数(世代)
+GENERATION = 1000  # ant，interestを放つ回数(世代)
 
 # /////////////////////////////////////////////////クラス定義/////////////////////////////////////////////////
 
@@ -71,7 +71,7 @@ def generate_ants(start_node, goal_node, generation, total_generation):
     ants = []
     choices = ["random"] * 45 + ["width"] * 45 + ["pheromone"] * 10
     for _ in range(ANT_NUM):
-        if generation < total_generation * 0.07:
+        if False:
             strategy = secrets.choice(choices)
         else:
             strategy = "adaptive"
@@ -125,7 +125,7 @@ def update_pheromone(ant: Ant, node_list: list[Node]) -> None:
             continue
 
         # フェロモン値を更新
-        before_node.pheromone[index] += min(ant.width) * 10
+        before_node.pheromone[index] += min(ant.width) ** 2
         if before_node.pheromone[index] > before_node.max_pheromone[index]:
             before_node.pheromone[index] = before_node.max_pheromone[index]
 
@@ -223,10 +223,15 @@ def ant_next_node(
                 ]
                 next_node = diff_list[secrets.choice(max_pheromone_index)]
             else:  # フェロモン重視の戦略
-                dynamic_alpha = update_alpha(current_generation, GENERATION)
-                total_pheromone = sum(candidacy_pheromones)
-                probabilities = [(p) / total_pheromone for p in candidacy_pheromones]
-                next_node = weighted_choice(diff_list, probabilities)
+                # dynamic_alpha = update_alpha(current_generation, GENERATION)
+                # total_pheromone = sum(candidacy_pheromones)
+                # probabilities = [(p) / total_pheromone for p in candidacy_pheromones]
+                # next_node = weighted_choice(diff_list, probabilities)
+                weight_width = [i**BETA for i in candidacy_width]
+                weighting = [
+                    x * y for (x, y) in zip(candidacy_pheromones, weight_width)
+                ]
+                next_node = random.choices(diff_list, k=1, weights=weighting)[0]
 
             ant.current = next_node
             ant.route.append(next_node)
@@ -671,8 +676,7 @@ if __name__ == "__main__":
         # ! -------------------------------------------------探索-------------------------------------------------
         for gen in range(GENERATION):
             # ネットワーク構造を変更する。
-            # TODO: ランダムの方が保持している最適値はルート的に存在しているかを確認する。
-            dynamic_topology_change(node_list, gen, GENERATION, rand_log, best_routes)
+            # dynamic_topology_change(node_list, gen, GENERATION, rand_log, best_routes)
 
             print(
                 "\n-------------------------------------Start of Search Gen"
@@ -689,7 +693,7 @@ if __name__ == "__main__":
 
             # 揮発フェーズ
             # option volatilize(node_list)
-            volatilize(node_list)
+            volatilize_by_width(node_list)
 
             # Randによる評価
             # Randを配置

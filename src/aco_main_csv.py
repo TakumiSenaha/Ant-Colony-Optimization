@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 2000  # ant，interestを放つ回数(世代)
+GENERATION = 1000  # ant，interestを放つ回数(世代)
 
 # /////////////////////////////////////////////////クラス定義/////////////////////////////////////////////////
 
@@ -70,10 +70,8 @@ def volatilize_by_width(node_list: list[Node]) -> None:
     # 各エッジのフェロモン値を帯域の大きさによって定数倍する関数(フェロモンの揮発に相当)
     for node in node_list:
         for i in range(len(node.pheromone)):
-            # 揮発量はwidth100のとき0.99、width10のとき0.91
-            # rate = 0.89 + node.width[i] / 1000
+            # rate = 0.98
             rate = 0.99 * (0.8 ** ((100 - node.width[i]) / 10))
-            # rate = 0.99
             new_pheromone = math.floor(node.pheromone[i] * rate)
             if new_pheromone <= node.min_pheromone:
                 node.pheromone[i] = node.min_pheromone
@@ -94,14 +92,13 @@ def update_pheromone(ant: Ant, node_list: list[Node]) -> None:
         # option before_node.pheromone[index] += int(( sum(ant.width) / len(ant.width) ))
         # option before_node.pheromone[index] += before_node.width[index] * int(( sum(ant.width) / len(ant.width) ))
 
-        if before_node.pheromone[index] > MAX_F:
-            before_node.pheromone[index] = MAX_F
+        if before_node.pheromone[index] > before_node.max_pheromone[index]:
+            before_node.pheromone[index] = before_node.max_pheromone[index]
 
 
 def ant_next_node(
     ant_list: list[Ant],
     node_list: list[Node],
-    current_generation: int,
     ant_log: list[int],
 ) -> None:
     # antの次のノードを決定
@@ -131,19 +128,8 @@ def ant_next_node(
                 candidacy_pheromones.append(pheromone[index])
                 candidacy_width.append(width[index])
 
-            # weight_width = [i ** BETA for i in candidacy_width]
-            # weighting = [
-            #     x*y for (x, y) in zip(candidacy_pheromones, weight_width)]
-
-            # フェロモンの影響力を世代数に応じて調整
-            pheromone_influence = min(
-                math.exp(current_generation / GENERATION) - 1, BETA + 0.1
-            )
             weight_width = [i**BETA for i in candidacy_width]
-            weighting = [
-                (pheromone**pheromone_influence) * width_weight
-                for pheromone, width_weight in zip(candidacy_pheromones, weight_width)
-            ]
+            weighting = [x * y for (x, y) in zip(candidacy_pheromones, weight_width)]
 
             next_node = random.choices(diff_list, k=1, weights=weighting)[0]
 
@@ -501,7 +487,7 @@ if __name__ == "__main__":
             )
             # Antの移動
             for _ in range(TTL):
-                ant_next_node(ant_list, node_list, gen, ant_log)
+                ant_next_node(ant_list, node_list, ant_log)
 
             # 揮発フェーズ
             # option volatilize(node_list)
