@@ -1,6 +1,6 @@
 import csv
 
-import japanize_matplotlib  # 日本語フォントを使用するためのインポート
+import japanize_matplotlib
 import matplotlib.pyplot as plt
 
 
@@ -19,7 +19,9 @@ def calculate_failure_rate_per_generation(log_data):
 
     for gen in range(generations):
         gen_values = [row[gen] for row in log_data]
-        failure_rate = gen_values.count(0) / len(gen_values)
+        failure_rate = (
+            gen_values.count(0) / len(gen_values)
+        ) * 100  # パーセンテージに変換
         failure_rates.append(failure_rate)
 
     return failure_rates
