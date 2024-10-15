@@ -1,6 +1,7 @@
 import csv
 import math
 import random
+import sys
 from datetime import datetime
 
 import networkx as nx
@@ -204,6 +205,16 @@ def interest_next_node(
                 print(f"Interest TTL! → {interest.route}")
 
 
+def load_graph(file_name: str) -> nx.Graph:
+    """保存されたエッジリスト形式のグラフを読み込む"""
+    graph = nx.read_edgelist(file_name, data=[("weight", float)], nodetype=int)
+    # 読み込んだグラフのエッジに初期フェロモン値を追加
+    for u, v in graph.edges():
+        graph[u][v]["pheromone"] = MIN_F
+
+    return graph
+
+
 def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
     """Barabási-Albertモデルでグラフを生成"""
     return nx.barabasi_albert_graph(num_nodes, num_edges)
@@ -262,17 +273,20 @@ if __name__ == "__main__":
         num_edges = 3  # 新しいノードが既存ノードに接続する数
 
         # BAモデルでグラフを生成
-        graph: nx.Graph = ba_graph(num_nodes, num_edges)
+        # graph: nx.Graph = ba_graph(num_nodes, num_edges)
+        graph = load_graph("ba_model_graph")
 
         # グラフを双方向に変換
         graph = make_graph_bidirectional(graph)
 
         # シミュレーションで使用する開始ノードと終了ノードを決定
-        START_NODE: int = random.randint(0, num_nodes - 1)
-        GOAL_NODE: int = random.randint(0, num_nodes - 1)
+        # START_NODE: int = random.randint(0, num_nodes - 1)
+        # GOAL_NODE: int = random.randint(0, num_nodes - 1)
+        START_NODE: int = 84
+        GOAL_NODE: int = 40
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
-        graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
+        # graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
