@@ -42,30 +42,66 @@ class Interest:
         return f"Interest(current={self.current}, destination={self.destination}, route={self.route}, minwidth={self.minwidth})"
 
 
-def volatilize_by_width(graph: nx.Graph) -> None:
-    """各エッジのフェロモン値を帯域の大きさによって定数倍して揮発させる処理"""
+def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
+    """ノードの隣接数と帯域幅に基づいてフェロモンの最小値と最大値を双方向に設定"""
     for u, v in graph.edges():
-        width = graph[u][v]["weight"]  # 帯域幅
-        pheromone = graph[u][v]["pheromone"]  # フェロモン量
+        # ノードuとvの隣接ノード数を取得
+        degree_u = len(list(graph.neighbors(u)))
+        degree_v = len(list(graph.neighbors(v)))
 
-        # 帯域幅に基づいた揮発レートの計算
-        rate = 0.99 * (0.8 ** ((100 - width) / 10))
-        new_pheromone = max(math.floor(pheromone * rate), MIN_F)
+        # フェロモン最小値を隣接ノード数に基づいて設定
+        graph[u][v]["min_pheromone"] = MIN_F * 3 // degree_u
+        graph[v][u]["min_pheromone"] = MIN_F * 3 // degree_v
 
-        # フェロモン量が最小値より小さくならないように調整
-        graph[u][v]["pheromone"] = new_pheromone
-        graph[v][u]["pheromone"] = new_pheromone  # 双方向リンクに対しても揮発を適用
+        # 帯域幅に基づいてフェロモン最大値を設定
+        width_u_to_v = graph[u][v]["weight"]
+        width_v_to_u = graph[v][u]["weight"]
+
+        graph[u][v]["max_pheromone"] = min(MAX_F, width_u_to_v**3)
+        graph[v][u]["max_pheromone"] = min(MAX_F, width_v_to_u**3)
+
+
+def volatilize_by_width(graph: nx.Graph) -> None:
+    """各エッジのフェロモン値を双方向で別々に揮発させる処理"""
+    for u, v in graph.edges():
+        # uからv、vからuの帯域幅を取得
+        width_u_to_v = graph[u][v]["weight"]
+        width_v_to_u = graph[v][u]["weight"]
+
+        # フェロモン揮発率の計算
+        rate_u_to_v = V * (0.8 ** ((100 - width_u_to_v) / 10))
+        rate_v_to_u = V * (0.8 ** ((100 - width_v_to_u) / 10))
+
+        # u→v のフェロモン揮発
+        new_pheromone_u_to_v = max(
+            math.floor(graph[u][v]["pheromone"] * rate_u_to_v),
+            graph[u][v]["min_pheromone"],
+        )
+        graph[u][v]["pheromone"] = new_pheromone_u_to_v
+
+        # v→u のフェロモン揮発
+        new_pheromone_v_to_u = max(
+            math.floor(graph[v][u]["pheromone"] * rate_v_to_u),
+            graph[v][u]["min_pheromone"],
+        )
+        graph[v][u]["pheromone"] = new_pheromone_v_to_u
 
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
-    """Antが通過した経路にフェロモンを加算"""
+    """Antが通過した経路にフェロモンを双方向に加算"""
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
         pheromone_increase = min(ant.width)
+
+        # u→v のフェロモンを更新
         graph[u][v]["pheromone"] = min(
-            graph[u][v]["pheromone"] + pheromone_increase, MAX_F
+            graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
         )
-        graph[v][u]["pheromone"] = graph[u][v]["pheromone"]  # 双方向のリンクも更新
+
+        # v→u のフェロモンを別々に更新
+        graph[v][u]["pheromone"] = min(
+            graph[v][u]["pheromone"] + pheromone_increase, graph[v][u]["max_pheromone"]
+        )
 
 
 def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> None:
@@ -149,9 +185,7 @@ def interest_next_node(
                     interest.minwidth,
                     graph[interest.route[-2]][interest.route[-1]]["weight"],
                 )
-            elif (
-                "weight" in graph[interest.route[-1]][interest.route[-2]]
-            ):  # 逆方向確認
+            elif "weight" in graph[interest.route[-1]][interest.route[-2]]:
                 interest.minwidth = min(
                     interest.minwidth,
                     graph[interest.route[-1]][interest.route[-2]]["weight"],
@@ -239,6 +273,9 @@ if __name__ == "__main__":
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
         graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
+
+        # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
+        set_pheromone_min_max_by_degree_and_width(graph)
 
         # AntとInterestオブジェクト格納リスト
         ant_list: list[Ant] = []
