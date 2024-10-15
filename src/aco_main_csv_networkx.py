@@ -4,6 +4,7 @@ import random
 from datetime import datetime
 
 import networkx as nx
+from networkx.drawing.nx_agraph import to_agraph
 
 V = 0.99  # フェロモン揮発量
 MIN_F = 100  # フェロモン最小値
@@ -49,61 +50,60 @@ def volatilize_by_width(graph: nx.Graph) -> None:
 
         # 帯域幅に基づいた揮発レートの計算
         rate = 0.99 * (0.8 ** ((100 - width) / 10))
-        new_pheromone = math.floor(pheromone * rate)
+        new_pheromone = max(math.floor(pheromone * rate), MIN_F)
 
         # フェロモン量が最小値より小さくならないように調整
-        graph[u][v]["pheromone"] = max(new_pheromone, MIN_F)
+        graph[u][v]["pheromone"] = new_pheromone
+        graph[v][u]["pheromone"] = new_pheromone  # 双方向リンクに対しても揮発を適用
 
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """Antが通過した経路にフェロモンを加算"""
     for i in range(1, len(ant.route)):
-        u = ant.route[i - 1]
-        v = ant.route[i]
-        graph[u][v]["pheromone"] += min(ant.width)
-        if graph[u][v]["pheromone"] > MAX_F:
-            graph[u][v]["pheromone"] = MAX_F
+        u, v = ant.route[i - 1], ant.route[i]
+        pheromone_increase = min(ant.width)
+        graph[u][v]["pheromone"] = min(
+            graph[u][v]["pheromone"] + pheromone_increase, MAX_F
+        )
+        graph[v][u]["pheromone"] = graph[u][v]["pheromone"]  # 双方向のリンクも更新
 
 
 def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> None:
-    """Antが次のノードを選択し移動"""
+    """Antの次の移動先を決定し、移動を実行"""
     for ant in reversed(ant_list):
         neighbors = list(graph.neighbors(ant.current))
         candidates = [n for n in neighbors if n not in ant.route]
 
+        # 候補先がないなら削除
         if not candidates:
             ant_list.remove(ant)
+            ant_log.append(0)
             print(f"Ant Can't Find Route! → {ant.route}")
         else:
+            # フェロモン値と帯域幅を取得
             pheromones = [graph[ant.current][n]["pheromone"] for n in candidates]
             widths = [graph[ant.current][n]["weight"] for n in candidates]
+
+            # 帯域幅に基づいた重み付け
             weight_width = [w**BETA for w in widths]
             weights = [p * w for p, w in zip(pheromones, weight_width)]
 
+            # 重みに基づいて次のノードを選択
             next_node = random.choices(candidates, weights=weights, k=1)[0]
 
-            # エッジが存在するかのチェックと双方向アクセスを追加
-            if graph.has_edge(ant.current, next_node):
-                ant.current = next_node
-                ant.route.append(next_node)
+            # antのルートと帯域幅を更新
+            ant.route.append(next_node)
+            ant.width.append(graph[ant.current][next_node]["weight"])
+            ant.current = next_node
 
-                # エッジ属性にアクセスする際に、双方向対応にする
-                if "weight" in graph[ant.route[-2]][ant.route[-1]]:
-                    ant.width.append(graph[ant.route[-2]][ant.route[-1]]["weight"])
-                elif "weight" in graph[ant.route[-1]][ant.route[-2]]:  # 逆方向も確認
-                    ant.width.append(graph[ant.route[-1]][ant.route[-2]]["weight"])
-                else:
-                    print(
-                        f"Warning: No weight data between {ant.route[-2]} and {ant.route[-1]}"
-                    )
-            else:
-                print(f"Error: No edge between {ant.current} and {next_node}")
-
+            # 目的ノードに到達した場合、フェロモンを更新してリストから削除
             if ant.current == ant.destination:
                 update_pheromone(ant, graph)
                 ant_log.append(min(ant.width))
                 ant_list.remove(ant)
                 print(f"Ant Goal! → {ant.route} : {min(ant.width)}")
+
+            # TTL（生存時間）を超えた場合もリストから削除
             elif len(ant.route) == TTL:
                 ant_log.append(0)
                 ant_list.remove(ant)
@@ -113,19 +113,21 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
 def interest_next_node(
     interest_list: list[Interest], graph: nx.Graph, interest_log: list[int]
 ) -> None:
-    """Interestが次のノードを選択し移動"""
+    """Interestの次の移動先を決定し、移動を実行"""
     for interest in reversed(interest_list):
         neighbors = list(graph.neighbors(interest.current))
         candidates = [n for n in neighbors if n not in interest.route]
 
+        # 候補先がないなら削除
         if not candidates:
             interest_list.remove(interest)
             interest_log.append(0)
             print(f"Interest Can't Find Route! → {interest.route}")
         else:
-            # 各候補ノードに対して帯域幅を取得（双方向対応）
+            # 候補先の帯域幅を取得（双方向対応）
             widths = []
             for n in candidates:
+                # 双方向リンクの帯域幅を確認
                 if "weight" in graph[interest.current][n]:
                     widths.append(graph[interest.current][n]["weight"])
                 elif "weight" in graph[n][interest.current]:  # 逆方向も確認
@@ -137,8 +139,9 @@ def interest_next_node(
             # 最大の帯域幅を持つノードを選択
             next_node = candidates[widths.index(max(widths))]
 
-            interest.current = next_node
+            # interestのルートを更新
             interest.route.append(next_node)
+            interest.current = next_node
 
             # 帯域幅の最小値を更新（双方向確認）
             if "weight" in graph[interest.route[-2]][interest.route[-1]]:
@@ -148,7 +151,7 @@ def interest_next_node(
                 )
             elif (
                 "weight" in graph[interest.route[-1]][interest.route[-2]]
-            ):  # 逆方向も確認
+            ):  # 逆方向確認
                 interest.minwidth = min(
                     interest.minwidth,
                     graph[interest.route[-1]][interest.route[-2]]["weight"],
@@ -159,6 +162,8 @@ def interest_next_node(
                 interest_log.append(interest.minwidth)
                 interest_list.remove(interest)
                 print(f"Interest Goal! → {interest.route} : {interest.minwidth}")
+
+            # TTL（生存時間）を超えた場合
             elif len(interest.route) == TTL:
                 interest_log.append(0)
                 interest_list.remove(interest)
@@ -166,12 +171,35 @@ def interest_next_node(
 
 
 def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
-    """NetworkXを用いてBAグラフを作成"""
-    G = nx.barabasi_albert_graph(num_nodes, num_edges)
-    for u, v in G.edges():
-        G[u][v]["pheromone"] = MIN_F  # フェロモン初期値
-        G[u][v]["weight"] = random.randint(lb, ub) * 10  # 帯域幅
-    return G
+    """Barabási-Albertモデルでグラフを生成"""
+    return nx.barabasi_albert_graph(num_nodes, num_edges)
+
+
+def make_graph_bidirectional(graph: nx.Graph, lb: int = 1, ub: int = 10) -> nx.Graph:
+    """無向グラフを双方向グラフに変換し、双方向の同じ帯域幅とフェロモンを設定"""
+    directed_G = nx.DiGraph()
+
+    for u, v in graph.edges():
+        weight = random.randint(lb, ub) * 10
+        directed_G.add_edge(u, v, weight=weight, pheromone=MIN_F)
+        directed_G.add_edge(v, u, weight=weight, pheromone=MIN_F)
+
+    return directed_G
+
+
+def set_optimal_path(
+    graph: nx.Graph, start: int, goal: int, min_pheromone: int = 100
+) -> nx.Graph:
+    """最適経路を設定し、帯域幅を100に固定"""
+    num_nodes = len(graph.nodes())
+    node_list = [i for i in range(num_nodes) if i not in {start, goal}]
+    node1, node2, node3 = random.sample(node_list, 3)
+
+    for u, v in [(start, node1), (node1, node2), (node2, node3), (node3, goal)]:
+        graph.add_edge(u, v, weight=100, pheromone=min_pheromone)
+        graph.add_edge(v, u, weight=100, pheromone=min_pheromone)
+
+    return graph
 
 
 def save_graph(graph: nx.Graph):
@@ -181,17 +209,42 @@ def save_graph(graph: nx.Graph):
     return file_name
 
 
+def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
+    """グラフをPDFに保存し、エッジの太さを帯域幅に基づいて設定"""
+    A = to_agraph(graph)
+    for u, v in graph.edges():
+        edge = A.get_edge(u, v)
+        width = graph[u][v]["weight"]
+        edge.attr["penwidth"] = str(width / 20)
+
+    A.layout("fdp")
+    A.draw(filename, format="pdf")
+
+
 # Main処理
 if __name__ == "__main__":
     for sim in range(SIMULATIONS):
-        graph: nx.Graph = ba_graph(100, 3)
+        num_nodes = 100  # ノードの数
+        num_edges = 3  # 新しいノードが既存ノードに接続する数
 
-        START_NODE: int = random.randint(0, 99)
-        GOAL_NODE: int = random.randint(0, 99)
+        # BAモデルでグラフを生成
+        graph: nx.Graph = ba_graph(num_nodes, num_edges)
 
-        ant_list: list[Ant] = []  # Antオブジェクト格納リスト
-        interest_list: list[Interest] = []  # Interestオブジェクト格納リスト
+        # グラフを双方向に変換
+        graph = make_graph_bidirectional(graph)
 
+        # シミュレーションで使用する開始ノードと終了ノードを決定
+        START_NODE: int = random.randint(0, num_nodes - 1)
+        GOAL_NODE: int = random.randint(0, num_nodes - 1)
+
+        # 最適経路を追加し、その経路の帯域をすべて100に設定
+        graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
+
+        # AntとInterestオブジェクト格納リスト
+        ant_list: list[Ant] = []
+        interest_list: list[Interest] = []
+
+        # ログのリスト
         ant_log: list[int] = []
         interest_log: list[int] = []
 
@@ -209,11 +262,11 @@ if __name__ == "__main__":
 
             # フェロモンの揮発
             volatilize_by_width(graph)
-            print(f"ant_log: {ant_log}")
 
             # Interestによる評価
             # Interestを配置
             interest_list.append(Interest(START_NODE, GOAL_NODE, [START_NODE], W))
+
             # Interestの移動
             for _ in range(TTL):
                 interest_next_node(interest_list, graph, interest_log)
@@ -227,4 +280,6 @@ if __name__ == "__main__":
             writer = csv.writer(f)
             writer.writerow(interest_log)
 
+    # 最終的なグラフの視覚化
+    visualize_graph(graph, "network_graph.pdf")
     print("Simulations completed.")
