@@ -14,6 +14,7 @@ BETA = 1  # 経路選択の際のヒューリスティック値に対する重�
 
 ANT_NUM = 1  # 一回で放つAntの数
 GENERATION = 1000  # ant，interestを放つ回数(世代)
+SIMULATIONS = 100
 
 
 class Ant:
@@ -25,6 +26,9 @@ class Ant:
         self.route = route  # 辿ってきた経路の配列
         self.width = width  # 辿ってきた経路の帯域の配列
 
+    def __repr__(self):
+        return f"Ant(current={self.current}, destination={self.destination}, route={self.route}, width={self.width})"
+
 
 class Interest:
     def __init__(self, current: int, destination: int, route: list[int], minwidth: int):
@@ -32,6 +36,9 @@ class Interest:
         self.destination = destination  # コンテンツ保持ノード
         self.route = route  # 辿ってきた経路の配列
         self.minwidth = minwidth  # 辿ってきた経路の最小帯域
+
+    def __repr__(self):
+        return f"Interest(current={self.current}, destination={self.destination}, route={self.route}, minwidth={self.minwidth})"
 
 
 def volatilize_by_width(graph: nx.Graph) -> None:
@@ -176,39 +183,48 @@ def save_graph(graph: nx.Graph):
 
 # Main処理
 if __name__ == "__main__":
-    num_nodes = 100
-    num_edges = 3
-    graph = ba_graph(num_nodes, num_edges)
+    for sim in range(SIMULATIONS):
+        graph: nx.Graph = ba_graph(100, 3)
 
-    START_NODE = random.randint(0, num_nodes - 1)
-    GOAL_NODE = random.randint(0, num_nodes - 1)
+        START_NODE: int = random.randint(0, 99)
+        GOAL_NODE: int = random.randint(0, 99)
 
-    ant_list = [Ant(START_NODE, GOAL_NODE, [START_NODE], [])]
-    interest_list = [Interest(START_NODE, GOAL_NODE, [START_NODE], W)]
-    ant_log = []
-    interest_log = []
+        ant_list: list[Ant] = []  # Antオブジェクト格納リスト
+        interest_list: list[Interest] = []  # Interestオブジェクト格納リスト
 
-    for generation in range(GENERATION):
-        print(f"ant_log {ant_log}")
+        ant_log: list[int] = []
+        interest_log: list[int] = []
 
-        # Antによる探索
-        ant_next_node(ant_list, graph, ant_log)
+        for generation in range(GENERATION):
+            print(f"Simulation {sim+1}, Generation {generation+1}")
 
-        # Interestによる評価
-        interest_next_node(interest_list, graph, interest_log)
+            # Antを配置
+            ant_list.extend(
+                [Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)]
+            )
 
-        # フェロモンの揮発
-        volatilize_by_width(graph)
+            # Antによる探索
+            for _ in range(TTL):
+                ant_next_node(ant_list, graph, ant_log)
 
-    print("Simulation finished.")
+            # フェロモンの揮発
+            volatilize_by_width(graph)
+            print(f"ant_log: {ant_log}")
 
-    # 結果の保存
-    with open("ant_log.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(ant_log)
+            # Interestによる評価
+            # Interestを配置
+            interest_list.append(Interest(START_NODE, GOAL_NODE, [START_NODE], W))
+            # Interestの移動
+            for _ in range(TTL):
+                interest_next_node(interest_list, graph, interest_log)
 
-    with open("interest_log.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(interest_log)
+        # 各シミュレーションのログをCSVに保存
+        with open("ant_log.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(ant_log)
 
-    save_graph(graph)
+        with open("interest_log.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(interest_log)
+
+    print("Simulations completed.")
