@@ -220,12 +220,13 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
     return nx.barabasi_albert_graph(num_nodes, num_edges)
 
 
-def make_graph_bidirectional(graph: nx.Graph, lb: int = 1, ub: int = 10) -> nx.Graph:
+def make_graph_bidirectional(graph: nx.Graph) -> nx.Graph:
     """無向グラフを双方向グラフに変換し、双方向の同じ帯域幅とフェロモンを設定"""
     directed_G = nx.DiGraph()
 
-    for u, v in graph.edges():
-        weight = random.randint(lb, ub) * 10
+    for u, v, data in graph.edges(data=True):
+        weight = data["weight"]  # 元のグラフの帯域幅を取得
+        # 双方向エッジを追加
         directed_G.add_edge(u, v, weight=weight, pheromone=MIN_F)
         directed_G.add_edge(v, u, weight=weight, pheromone=MIN_F)
 
