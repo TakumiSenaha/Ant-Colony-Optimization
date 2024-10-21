@@ -58,8 +58,8 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
         width_u_to_v = graph[u][v]["weight"]
         width_v_to_u = graph[v][u]["weight"]
 
-        graph[u][v]["max_pheromone"] = min(MAX_F, width_u_to_v**3)
-        graph[v][u]["max_pheromone"] = min(MAX_F, width_v_to_u**3)
+        graph[u][v]["max_pheromone"] = min(MAX_F, width_u_to_v**4)
+        graph[v][u]["max_pheromone"] = min(MAX_F, width_v_to_u**4)
 
 
 def volatilize_by_width(graph: nx.Graph) -> None:
@@ -92,7 +92,7 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """Antが通過した経路にフェロモンを双方向に加算"""
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
-        pheromone_increase = min(ant.width)
+        pheromone_increase = min(ant.width) ** 2
 
         # u→v のフェロモンを更新
         graph[u][v]["pheromone"] = min(
@@ -125,6 +125,10 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
             weight_width = [w**BETA for w in widths]
             weights = [p * w for p, w in zip(pheromones, weight_width)]
 
+            # フェロモン値に基づいて次のノードを選択
+            # Option: 帯域幅を考慮しない場合以下の行のコメントアウトを外す
+            # weights = pheromones  # フェロモン値のみを考慮
+
             # 重みに基づいて次のノードを選択
             next_node = random.choices(candidates, weights=weights, k=1)[0]
 
@@ -139,6 +143,12 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
                 ant_log.append(min(ant.width))
                 ant_list.remove(ant)
                 print(f"Ant Goal! → {ant.route} : {min(ant.width)}")
+
+                bottleneck_bandwidth = min(ant.width)
+                if bottleneck_bandwidth == 100 or bottleneck_bandwidth == 90:
+                    print(
+                        f"ボトルネック帯域が{bottleneck_bandwidth}の経路: {ant.route}"
+                    )
 
             # TTL（生存時間）を超えた場合もリストから削除
             elif len(ant.route) == TTL:
@@ -220,12 +230,13 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
     return nx.barabasi_albert_graph(num_nodes, num_edges)
 
 
-def make_graph_bidirectional(graph: nx.Graph, lb: int = 1, ub: int = 10) -> nx.Graph:
+def make_graph_bidirectional(graph: nx.Graph) -> nx.Graph:
     """無向グラフを双方向グラフに変換し、双方向の同じ帯域幅とフェロモンを設定"""
     directed_G = nx.DiGraph()
 
-    for u, v in graph.edges():
-        weight = random.randint(lb, ub) * 10
+    for u, v, data in graph.edges(data=True):
+        weight = data["weight"]  # 元のグラフの帯域幅を取得
+        # 双方向エッジを追加
         directed_G.add_edge(u, v, weight=weight, pheromone=MIN_F)
         directed_G.add_edge(v, u, weight=weight, pheromone=MIN_F)
 
@@ -282,8 +293,8 @@ if __name__ == "__main__":
         # シミュレーションで使用する開始ノードと終了ノードを決定
         # START_NODE: int = random.randint(0, num_nodes - 1)
         # GOAL_NODE: int = random.randint(0, num_nodes - 1)
-        START_NODE: int = 84
-        GOAL_NODE: int = 40
+        START_NODE: int = 30
+        GOAL_NODE: int = 32
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
         # graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
@@ -323,14 +334,14 @@ if __name__ == "__main__":
                 interest_next_node(interest_list, graph, interest_log)
 
         # 各シミュレーションのログをCSVに保存
-        with open("ant_log.csv", "a", newline="") as f:
+        with open("./simulation_result/log_ant.csv", "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(ant_log)
 
-        with open("interest_log.csv", "a", newline="") as f:
+        with open("./simulation_result/log_interest.csv", "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(interest_log)
 
     # 最終的なグラフの視覚化
-    visualize_graph(graph, "network_graph.pdf")
+    # visualize_graph(graph, "network_graph.pdf")
     print("Simulations completed.")
