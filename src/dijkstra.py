@@ -93,7 +93,7 @@ if __name__ == "__main__":
 
     else:
         # 新しいグラフを生成
-        num_node = 10
+        num_node = 100
         G = ba_graph(num_node, num_edges=3)
         print("新しいBAモデルのグラフを生成しました。")
         # 始点と終点の選択

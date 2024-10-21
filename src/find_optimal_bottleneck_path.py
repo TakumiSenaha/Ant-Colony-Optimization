@@ -55,8 +55,8 @@ if __name__ == "__main__":
     graph = load_graph(file_name)  # 既存のグラフを読み込む
 
     # 開始ノードと終了ノードを指定
-    START_NODE = 6  # 例: 開始ノード
-    GOAL_NODE = 9  # 例: 終了ノード
+    START_NODE = 30  # 例: 開始ノード
+    GOAL_NODE = 32  # 例: 終了ノード
 
     # 全探索で最適経路とボトルネック帯域を計算
     optimal_path, optimal_bottleneck = find_optimal_bottleneck(
