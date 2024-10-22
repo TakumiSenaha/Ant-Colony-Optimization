@@ -87,9 +87,9 @@ if __name__ == "__main__":
         print(f"グラフ '{file_name}' を読み込みました。")
         # 始点と終点の選択
         node_list = list(G.nodes())
-        src_node = random.choice(node_list)
+        src_node = 30
         node_list.remove(src_node)
-        dst_node = random.choice(node_list)
+        dst_node = 32
 
     else:
         # 新しいグラフを生成
@@ -113,11 +113,11 @@ if __name__ == "__main__":
     print(f"経路の重みの合計: {path2weight(G, v2)}")
     print(f"ボトルネックリンク容量: {bottleneck(G, v2)}")
 
-    # グラフをPDFに保存
-    pdf_file_name = "network_graph.pdf"
-    save_graph_as_pdf(G, v2, pdf_file_name)
-
     if not use_existing_graph:
+        # グラフをPDFに保存
+        pdf_file_name = "network_graph.pdf"
+        save_graph_as_pdf(G, v2, pdf_file_name)
+
         # グラフの保存（エッジリスト形式）
         file_name = "ba_model_graph"  # 拡張子なしのファイル名
         nx.write_edgelist(
