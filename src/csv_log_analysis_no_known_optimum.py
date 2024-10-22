@@ -3,7 +3,6 @@ import csv
 import matplotlib.pyplot as plt
 
 csv_file_name = "./simulation_result/log_ant.csv"
-export_image_name = "./simulation_result/result_previous.SVG"
 
 # ! 結果の集計---------------------------------------------------------------
 
@@ -23,33 +22,32 @@ counts = [[0] * 11 for _ in range(1000)]  # 1000世代分
 # 各ボトルネック帯域における出現回数を集計
 for row in data:
     for search_count, width in enumerate(row):
-        if width > 0:  # ボトルネック帯域が0でない場合のみカウント
-            try:
-                index = int(width // 10)
-                if 0 <= index <= 10:
-                    counts[search_count][index] += 1  # ボトルネック帯域の出現回数
-            except ValueError:
-                print(f"Invalid width value: {width}")
+        try:
+            index = int(width // 10)
+            if 0 <= index <= 10:
+                counts[search_count][index] += 1  # ボトルネック帯域の出現回数
+        except ValueError:
+            print(f"Invalid width value: {width}")
 
 # 各世代におけるボトルネック帯域の割合を計算
 ratios = [[0] * 11 for _ in range(1000)]  # ボトルネック帯域ごとの割合を格納
 
 for search_count in range(1000):
-    total = sum(counts[search_count][1:])  # 0帯域を除く総和
+    total = sum(counts[search_count])  # 0帯域を含む総和
     if total > 0:  # 出現回数がある場合のみ割合を計算
-        for i in range(1, 11):  # 0は除外
+        for i in range(11):  # 0を含む全ての帯域を対象に計算
             ratios[search_count][i] = counts[search_count][i] / total * 100
 
 # 平均を取るために転置し、各帯域ごとに100回のシミュレーションの平均を計算
 average_ratios = [0] * 11
 
-for i in range(1, 11):  # 0は除外
+for i in range(11):  # 0も含む全ての帯域を対象に平均を計算
     total_ratio = sum(row[i] for row in ratios)  # 各ボトルネック帯域の割合の総和
     average_ratios[i] = total_ratio / len(ratios)  # 平均割合
 
 # 結果を表示
-print("ボトルネック帯域ごとの平均割合 (0を除外):")
-for i in range(1, 11):
+print("ボトルネック帯域ごとの平均割合 (0も含む):")
+for i in range(11):
     print(f"帯域幅 {i * 10}: {average_ratios[i]:.2f}%")
 
 # ! グラフ描写---------------------------------------------------------------
@@ -68,15 +66,14 @@ color = [
     "#355D8D",
 ]
 
-# グラフ描写用のラベル（10, 20, 30,... の表記に変更）
-labels = [f"{i * 10}" for i in range(1, 11)]  # 0は除外
+# グラフ描写用のラベル（0, 10, 20, 30,... の表記に変更）
+labels = [f"{i * 10}" for i in range(11)]  # 0を含む
 
 # 棒グラフを描画
-plt.bar(labels, average_ratios[1:], color=color[1:], width=0.8)  # 0を除外して描画
+plt.bar(labels, average_ratios, color=color, width=0.8)
 
 # グラフの設定
 plt.xlabel("Bottleneck Bandwidth")
 plt.ylabel("Average Percentage (%)")
-plt.title("Average Routing Percentage by Bottleneck Bandwidth (Excluding 0)")
-plt.savefig(export_image_name)
+plt.title("Average Routing Percentage by Bottleneck Bandwidth (Including 0)")
 plt.show()
