@@ -3,7 +3,7 @@ import csv
 import japanize_matplotlib
 import matplotlib.pyplot as plt
 
-csv_file_name = "./simulation_result/log_interest.csv"
+csv_file_name = "./simulation_result/log_ant.csv"
 export_image_name = "./simulation_result/result_previous.SVG"
 
 # 結果の集計---------------------------------------------------------------
@@ -11,7 +11,7 @@ export_image_name = "./simulation_result/result_previous.SVG"
 # CSVファイルを読み込む
 with open(csv_file_name, "r") as f:
     reader = csv.reader(f)
-    data = [list(map(int, row)) for row in reader]
+    data = [list(map(float, row)) for row in reader]
 
 # 縦列が探索回数(1,2,3...)・横行(0,10,20...100)がその探索回数におけるwidthの出現回数
 counts = [[0] * 11 for _ in range(len(data[0]))]
@@ -19,14 +19,15 @@ counts = [[0] * 11 for _ in range(len(data[0]))]
 # 集計
 for row in data:
     for search_count, width in enumerate(row):
-        counts[search_count][width // 10] += 1
+        counts[search_count][int(width) // 10] += 1
 
 # 横行のwidthの出現回数の総和
 totals = [sum(col) for col in counts]
 
 # 縦列が探索回数・横行がその探索回数におけるwidthの割合
 ratios: list[list[float]] = [
-    [count * 100 / total for count in row] for row, total in zip(counts, totals)
+    [count * 100 / total if total > 0 else 0 for count in row]
+    for row, total in zip(counts, totals)
 ]
 
 # グラフ描写---------------------------------------------------------------
