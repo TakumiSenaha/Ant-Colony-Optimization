@@ -1,6 +1,6 @@
 import csv
-import pprint
 
+import japanize_matplotlib
 import matplotlib.pyplot as plt
 
 csv_file_name = "./simulation_result/log_ant.csv"
@@ -11,11 +11,10 @@ export_image_name = "./simulation_result/result_previous.SVG"
 # CSVファイルを読み込む
 with open(csv_file_name, "r") as f:
     reader = csv.reader(f)
-    # 数値の変換を考慮してfloatも受け付ける
     data = []
     for row in reader:
         try:
-            data.append(list(map(float, row)))  # floatも受け入れるように変更
+            data.append(list(map(float, row)))
         except ValueError:
             print(f"Error converting row to float: {row}")
 
@@ -76,16 +75,32 @@ transpose = list(map(list, zip(*proportions)))
 
 # グラフ描画
 bottom = [0] * len(labels)
-color_count = 0
-
-for row in transpose:
-    plt.bar(labels, row, width=1.0, bottom=bottom, color=color[color_count])
+for i, row in enumerate(transpose):
+    plt.bar(
+        labels,
+        row,
+        width=1.0,
+        bottom=bottom,
+        color=color[i],
+        label=f"帯域幅 {10 * (10 - i)}",
+    )
     bottom = [sum(x) for x in zip(bottom, row)]
-    color_count += 1
 
 # グラフの設定
 plt.ylim((0, 100))
-plt.xlabel("Search Count")
-plt.ylabel("Percentage")
+plt.xlabel("世代", fontsize=15)
+plt.ylabel("ルーティング割合 [%]", fontsize=15)
+
+# 凡例を取得して逆順に設定
+handles, labels = plt.gca().get_legend_handles_labels()
+plt.legend(
+    handles[::-1],
+    labels[::-1],
+    title="ボトルネック帯域 (Mbps)",
+    title_fontsize=12,
+    fontsize=10,
+    loc="center right",
+)
+
 plt.savefig(export_image_name)
 plt.show()
