@@ -75,6 +75,7 @@ transpose = list(map(list, zip(*proportions)))
 
 # グラフ描画
 bottom = [0] * len(labels)
+plt.figure(figsize=(10, 6))
 for i, row in enumerate(transpose):
     plt.bar(
         labels,
@@ -88,8 +89,8 @@ for i, row in enumerate(transpose):
 
 # グラフの設定
 plt.ylim((0, 100))
-plt.xlabel("世代", fontsize=15)
-plt.ylabel("ルーティング割合 [%]", fontsize=15)
+plt.xlabel("世代", fontsize=20)
+plt.ylabel("ルーティング割合 [%]", fontsize=20)
 
 # 凡例を取得して逆順に設定
 handles, labels = plt.gca().get_legend_handles_labels()
@@ -102,5 +103,7 @@ plt.legend(
     loc="center right",
 )
 
-plt.savefig(export_image_name)
+plt.gca().tick_params(axis="both", which="major", labelsize=20)
+
+plt.tight_layout()
 plt.show()
