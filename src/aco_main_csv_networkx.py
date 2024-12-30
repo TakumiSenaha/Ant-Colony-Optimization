@@ -267,6 +267,19 @@ def save_graph(graph: nx.Graph):
     return file_name
 
 
+def save_graph_with_pheromone(graph: nx.Graph, file_name: str) -> None:
+    """
+    NetworkX グラフをエッジリスト形式でフェロモン情報付きで保存
+    フォーマット: source target weight pheromone
+    """
+    with open(file_name, "w") as f:
+        for u, v, data in graph.edges(data=True):
+            weight = data.get("weight", 0)
+            pheromone = data.get("pheromone", 0)
+            f.write(f"{u} {v} {weight} {pheromone}\n")
+    print(f"グラフを保存しました: {file_name}")
+
+
 def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
     """グラフをPDFに保存し、エッジの太さを帯域幅に基づいて設定"""
     A = to_agraph(graph)
