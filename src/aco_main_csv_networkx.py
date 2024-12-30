@@ -106,9 +106,10 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
     """Antの次の移動先を決定し、移動を実行"""
     for ant in reversed(ant_list):
         neighbors = list(graph.neighbors(ant.current))
+        # 戻ることは基本的に許されていない
         candidates = [n for n in neighbors if n not in ant.route]
 
-        # 候補先がないなら削除
+        # 候補先がないなら削除（戻ることしか出来なくなったら探索失敗）
         if not candidates:
             ant_list.remove(ant)
             ant_log.append(0)
