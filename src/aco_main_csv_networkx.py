@@ -89,19 +89,16 @@ def volatilize_by_width(graph: nx.Graph) -> None:
 
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
-    """Antが通過した経路にフェロモンを双方向に加算"""
+    """
+    Antが通過した経路にフェロモンを通った方向のみに加算
+    """
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
         pheromone_increase = min(ant.width) ** 2
 
-        # u→v のフェロモンを更新
+        # u→v のフェロモンを更新（通った方向のみ）
         graph[u][v]["pheromone"] = min(
             graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
-        )
-
-        # v→u のフェロモンを別々に更新
-        graph[v][u]["pheromone"] = min(
-            graph[v][u]["pheromone"] + pheromone_increase, graph[v][u]["max_pheromone"]
         )
 
 
