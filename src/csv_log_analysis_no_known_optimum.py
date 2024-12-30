@@ -2,56 +2,68 @@ import csv
 
 import matplotlib.pyplot as plt
 
+# ファイル名を設定
 csv_file_name = "./simulation_result/log_ant.csv"
 
-# ! 結果の集計---------------------------------------------------------------
+# ! データの読み込みと初期化 ------------------------------------------------
 
-# CSVファイルを読み込む
+# データを読み込み
+data = []
 with open(csv_file_name, "r") as f:
     reader = csv.reader(f)
-    data = []
     for row in reader:
         try:
-            data.append(list(map(float, row)))  # float型も受け付けるように変更
+            # 行データをfloat型に変換して追加
+            data.append(list(map(float, row)))
         except ValueError:
             print(f"Error converting row to float: {row}")
+            # エラー時はデフォルト値（0を含む帯域ごとに11要素）を追加
+            data.append([0] * 11)
 
-# 縦列がボトルネック帯域の値・横行(0,10,20...100)がその帯域における回数
-counts = [[0] * 11 for _ in range(1000)]  # 1000世代分
+# 世代数をデータから取得して、必要な構造を初期化
+num_generations = len(data)  # 世代数（データ行数）
+counts = [[0] * 11 for _ in range(num_generations)]  # 出現回数カウント用
+ratios = [[0] * 11 for _ in range(num_generations)]  # 割合計算用
 
-# 各ボトルネック帯域における出現回数を集計
-for row in data:
-    for search_count, width in enumerate(row):
+# ! 出現回数の集計 ----------------------------------------------------------
+
+for search_count, row in enumerate(data):
+    for width in row:
         try:
-            index = int(width // 10)
+            index = int(width // 10)  # 帯域幅を10刻みでカテゴリ化
             if 0 <= index <= 10:
-                counts[search_count][index] += 1  # ボトルネック帯域の出現回数
-        except ValueError:
+                counts[search_count][index] += 1  # 対応するカテゴリをインクリメント
+            else:
+                print(f"Width out of range: {width}")
+        except (ValueError, IndexError):
             print(f"Invalid width value: {width}")
 
-# 各世代におけるボトルネック帯域の割合を計算
-ratios = [[0] * 11 for _ in range(1000)]  # ボトルネック帯域ごとの割合を格納
+# ! 割合の計算 --------------------------------------------------------------
 
-for search_count in range(1000):
-    total = sum(counts[search_count])  # 0帯域を含む総和
-    if total > 0:  # 出現回数がある場合のみ割合を計算
-        for i in range(11):  # 0を含む全ての帯域を対象に計算
+for search_count in range(num_generations):
+    total = sum(counts[search_count])  # 各世代の総数を計算
+    if total > 0:  # 総数が0でない場合にのみ割合を計算
+        for i in range(11):  # 全ての帯域（0～100）に対して計算
             ratios[search_count][i] = counts[search_count][i] / total * 100
 
-# 平均を取るために転置し、各帯域ごとに100回のシミュレーションの平均を計算
+# 平均割合を計算
 average_ratios = [0] * 11
+for i in range(11):
+    total_ratio = sum(row[i] for row in ratios)  # 各帯域の割合を合計
+    average_ratios[i] = total_ratio / len(ratios)  # 平均値を計算
 
-for i in range(11):  # 0も含む全ての帯域を対象に平均を計算
-    total_ratio = sum(row[i] for row in ratios)  # 各ボトルネック帯域の割合の総和
-    average_ratios[i] = total_ratio / len(ratios)  # 平均割合
+# 合計が100%であることを確認
+print(f"Sum of averages: {sum(average_ratios):.2f}%")
 
-# 結果を表示
+# ! 結果の出力 --------------------------------------------------------------
+
 print("ボトルネック帯域ごとの平均割合 (0も含む):")
 for i in range(11):
     print(f"帯域幅 {i * 10}: {average_ratios[i]:.2f}%")
 
-# ! グラフ描写---------------------------------------------------------------
-# 棒グラフの棒のカラー
+# ! グラフの描画 -------------------------------------------------------------
+
+# カラーリストとラベルを設定
 color = [
     "#4F71BE",
     "#DE8344",
@@ -65,9 +77,13 @@ color = [
     "#937424",
     "#355D8D",
 ]
+labels = [f"{i * 10}" for i in range(11)]
 
-# グラフ描写用のラベル（0, 10, 20, 30,... の表記に変更）
-labels = [f"{i * 10}" for i in range(11)]  # 0を含む
+# グラフデータとラベルが一致しない場合の警告と修正
+if len(average_ratios) != len(labels):
+    print("Warning: Label count and average_ratios count do not match.")
+    labels = [f"{i * 10}" for i in range(len(average_ratios))]
+    color = color[: len(average_ratios)]
 
 # 棒グラフを描画
 plt.bar(labels, average_ratios, color=color, width=0.8)
