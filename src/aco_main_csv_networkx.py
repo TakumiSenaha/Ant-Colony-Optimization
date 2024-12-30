@@ -224,7 +224,12 @@ def load_graph(file_name: str) -> nx.Graph:
 
 def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
     """Barabási-Albertモデルでグラフを生成"""
-    return nx.barabasi_albert_graph(num_nodes, num_edges)
+    graph = nx.barabasi_albert_graph(num_nodes, num_edges)
+    for u, v in graph.edges():
+        graph[u][v]["weight"] = (
+            random.randint(lb, ub) * 10
+        )  # リンクの容量（重み）を設定
+    return graph
 
 
 def make_graph_bidirectional(graph: nx.Graph) -> nx.Graph:
