@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 1000  # ant，interestを放つ回数(世代)
+GENERATION = 500  # ant，interestを放つ回数(世代)
 SIMULATIONS = 100
 
 
@@ -300,20 +300,18 @@ if __name__ == "__main__":
         num_edges = 3  # 新しいノードが既存ノードに接続する数
 
         # BAモデルでグラフを生成
-        # graph: nx.Graph = ba_graph(num_nodes, num_edges)
-        graph = load_graph("ba_model_graph")
+        graph: nx.Graph = ba_graph(num_nodes, num_edges, 1, 9)
+        # graph = load_graph("ba_model_graph")
 
         # グラフを双方向に変換
         graph = make_graph_bidirectional(graph)
 
         # シミュレーションで使用する開始ノードと終了ノードを決定
-        # START_NODE: int = random.randint(0, num_nodes - 1)
-        # GOAL_NODE: int = random.randint(0, num_nodes - 1)
-        START_NODE: int = 30
-        GOAL_NODE: int = 32
+        START_NODE: int = random.randint(0, num_nodes - 1)
+        GOAL_NODE: int = random.randint(0, num_nodes - 1)
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
-        # graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
+        graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
@@ -348,6 +346,8 @@ if __name__ == "__main__":
             # Interestの移動
             for _ in range(TTL):
                 interest_next_node(interest_list, graph, interest_log)
+
+        # save_graph_with_pheromone(graph, "ba_model_graph_with_pheromone")
 
         # 各シミュレーションのログをCSVに保存
         with open("./simulation_result/log_ant.csv", "a", newline="") as f:
