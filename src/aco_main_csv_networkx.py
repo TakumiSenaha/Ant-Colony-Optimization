@@ -58,8 +58,8 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
         width_u_to_v = graph[u][v]["weight"]
         width_v_to_u = graph[v][u]["weight"]
 
-        graph[u][v]["max_pheromone"] = min(MAX_F, width_u_to_v**4)
-        graph[v][u]["max_pheromone"] = min(MAX_F, width_v_to_u**4)
+        graph[u][v]["max_pheromone"] = width_u_to_v**5
+        graph[v][u]["max_pheromone"] = width_v_to_u**5
 
 
 def volatilize_by_width(graph: nx.Graph) -> None:
