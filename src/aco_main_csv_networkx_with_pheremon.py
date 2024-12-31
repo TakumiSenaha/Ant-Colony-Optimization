@@ -225,6 +225,21 @@ def load_graph(file_name: str) -> nx.Graph:
     return graph
 
 
+def load_graph_with_pheromone(file_name: str) -> nx.Graph:
+    """
+    保存されたエッジリスト形式のグラフをフェロモン情報付きで読み込む
+    フォーマット: source target weight pheromone
+    """
+    graph = nx.read_edgelist(
+        file_name,
+        data=[("weight", float), ("pheromone", float)],
+        nodetype=int,
+        create_using=nx.DiGraph,
+    )
+    print(f"グラフをロードしました: {file_name}")
+    return graph
+
+
 def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
     """Barabási-Albertモデルでグラフを生成"""
     return nx.barabasi_albert_graph(num_nodes, num_edges)
