@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 1000  # ant，interestを放つ回数(世代)
+GENERATION = 500  # ant，interestを放つ回数(世代)
 SIMULATIONS = 100
 
 
@@ -58,8 +58,8 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
         width_u_to_v = graph[u][v]["weight"]
         width_v_to_u = graph[v][u]["weight"]
 
-        graph[u][v]["max_pheromone"] = min(MAX_F, width_u_to_v**4)
-        graph[v][u]["max_pheromone"] = min(MAX_F, width_v_to_u**4)
+        graph[u][v]["max_pheromone"] = width_u_to_v**5
+        graph[v][u]["max_pheromone"] = width_v_to_u**5
 
 
 def volatilize_by_width(graph: nx.Graph) -> None:
@@ -89,19 +89,16 @@ def volatilize_by_width(graph: nx.Graph) -> None:
 
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
-    """Antが通過した経路にフェロモンを双方向に加算"""
+    """
+    Antが通過した経路にフェロモンを通った方向のみに加算
+    """
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
         pheromone_increase = min(ant.width) ** 2
 
-        # u→v のフェロモンを更新
+        # u→v のフェロモンを更新（通った方向のみ）
         graph[u][v]["pheromone"] = min(
             graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
-        )
-
-        # v→u のフェロモンを別々に更新
-        graph[v][u]["pheromone"] = min(
-            graph[v][u]["pheromone"] + pheromone_increase, graph[v][u]["max_pheromone"]
         )
 
 
@@ -109,9 +106,10 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
     """Antの次の移動先を決定し、移動を実行"""
     for ant in reversed(ant_list):
         neighbors = list(graph.neighbors(ant.current))
+        # 戻ることは基本的に許されていない
         candidates = [n for n in neighbors if n not in ant.route]
 
-        # 候補先がないなら削除
+        # 候補先がないなら削除（戻ることしか出来なくなったら探索失敗）
         if not candidates:
             ant_list.remove(ant)
             ant_log.append(0)
@@ -242,7 +240,12 @@ def load_graph_with_pheromone(file_name: str) -> nx.Graph:
 
 def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
     """Barabási-Albertモデルでグラフを生成"""
-    return nx.barabasi_albert_graph(num_nodes, num_edges)
+    graph = nx.barabasi_albert_graph(num_nodes, num_edges)
+    for u, v in graph.edges():
+        graph[u][v]["weight"] = (
+            random.randint(lb, ub) * 10
+        )  # リンクの容量（重み）を設定
+    return graph
 
 
 def make_graph_bidirectional(graph: nx.Graph) -> nx.Graph:
@@ -320,6 +323,9 @@ if __name__ == "__main__":
         # GOAL_NODE: int = random.randint(0, num_nodes - 1)
         START_NODE: int = 40
         GOAL_NODE: int = 32
+
+        # 最適経路を追加し、その経路の帯域をすべて100に設定
+        # graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
