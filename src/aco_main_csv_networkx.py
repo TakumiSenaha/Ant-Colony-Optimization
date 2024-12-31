@@ -300,18 +300,20 @@ if __name__ == "__main__":
         num_edges = 3  # 新しいノードが既存ノードに接続する数
 
         # BAモデルでグラフを生成
-        graph: nx.Graph = ba_graph(num_nodes, num_edges, 1, 9)
-        # graph = load_graph("ba_model_graph")
+        # graph: nx.Graph = ba_graph(num_nodes, num_edges)
+        graph = load_graph("ba_model_graph")
 
         # グラフを双方向に変換
         graph = make_graph_bidirectional(graph)
 
         # シミュレーションで使用する開始ノードと終了ノードを決定
-        START_NODE: int = random.randint(0, num_nodes - 1)
-        GOAL_NODE: int = random.randint(0, num_nodes - 1)
+        # START_NODE: int = random.randint(0, num_nodes - 1)
+        # GOAL_NODE: int = random.randint(0, num_nodes - 1)
+        START_NODE: int = 30
+        GOAL_NODE: int = 32
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
-        graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
+        # graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
