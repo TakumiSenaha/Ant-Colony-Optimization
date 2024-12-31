@@ -307,26 +307,19 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
 
 # Main処理
 if __name__ == "__main__":
-    for sim in range(1):
+    for sim in range(SIMULATIONS):
         num_nodes = 100  # ノードの数
         num_edges = 3  # 新しいノードが既存ノードに接続する数
 
         # BAモデルでグラフを生成
         # graph: nx.Graph = ba_graph(num_nodes, num_edges)
-        graph = load_graph("ba_model_graph")
-
-        # グラフを双方向に変換
-        graph = make_graph_bidirectional(graph)
+        graph = load_graph_with_pheromone("ba_model_graph_with_pheromone")
 
         # シミュレーションで使用する開始ノードと終了ノードを決定
         # START_NODE: int = random.randint(0, num_nodes - 1)
         # GOAL_NODE: int = random.randint(0, num_nodes - 1)
-        START_NODE: int = 30
+        START_NODE: int = 40
         GOAL_NODE: int = 32
-
-        # 最適経路を追加し、その経路の帯域をすべて100に設定
-        graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
-        graph = set_optimal_path(graph, 40, GOAL_NODE, min_pheromone=MIN_F)
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
@@ -362,7 +355,7 @@ if __name__ == "__main__":
             for _ in range(TTL):
                 interest_next_node(interest_list, graph, interest_log)
 
-        save_graph_with_pheromone(graph, "ba_model_graph_with_pheromone")
+        save_graph_with_pheromone(graph, "ba_model_graph_with_pheromone_after")
 
         # 各シミュレーションのログをCSVに保存
         with open("./simulation_result/log_ant.csv", "a", newline="") as f:
