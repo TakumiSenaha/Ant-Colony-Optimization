@@ -7,7 +7,17 @@ import networkx as nx
 # グラフを保存されたエッジリストから読み込む
 def load_graph(file_name: str) -> nx.Graph:
     """保存されたエッジリスト形式のグラフを読み込む"""
-    graph = nx.read_edgelist(file_name, data=[("weight", float)], nodetype=int)
+    graph = nx.Graph()
+    with open(file_name, "r") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 3:  # 必要なデータが揃っている場合のみ処理
+                try:
+                    # 最初の2つをノードとして、3番目を weight として処理
+                    u, v, weight = int(parts[0]), int(parts[1]), float(parts[2])
+                    graph.add_edge(u, v, weight=weight)
+                except ValueError as e:
+                    print(f"無視された行: {line.strip()} - エラー: {e}")
     return graph
 
 
