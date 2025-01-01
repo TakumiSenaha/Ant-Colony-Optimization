@@ -94,7 +94,8 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
-        pheromone_increase = min(ant.width) ** 2
+        # pheromone_increase = min(ant.width) ** 2
+        pheromone_increase = math.exp(min(ant.width) / 10)
 
         # u→v のフェロモンを更新（通った方向のみ）
         graph[u][v]["pheromone"] = min(
