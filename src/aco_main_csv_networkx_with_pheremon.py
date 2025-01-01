@@ -156,6 +156,53 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
                 print(f"Ant TTL! → {ant.route}")
 
 
+def ant_next_node_aware_generation(
+    ant_list: list[Ant], graph: nx.Graph, ant_log: list[int], generation: int
+) -> None:
+    """Antの次の移動先を決定し、移動を実行"""
+    alpha = 1 + (generation / GENERATION) * 5  # フェロモンの影響を増加（1 → 6）
+    beta = BETA  # 必要ならBETAも世代で変化させられる
+
+    for ant in reversed(ant_list):
+        neighbors = list(graph.neighbors(ant.current))
+        candidates = [n for n in neighbors if n not in ant.route]
+
+        if not candidates:  # 候補がない場合、探索を終了
+            ant_list.remove(ant)
+            ant_log.append(0)
+            print(f"Ant Can't Find Route! → {ant.route}")
+        else:
+            # フェロモン値と帯域幅を取得
+            pheromones = [graph[ant.current][n]["pheromone"] for n in candidates]
+            widths = [graph[ant.current][n]["weight"] for n in candidates]
+
+            # フェロモンと帯域幅の影響を調整
+            weight_pheromone = [
+                p**alpha for p in pheromones
+            ]  # フェロモンの影響を世代で増加
+            weight_width = [w**beta for w in widths]
+            weights = [p * w for p, w in zip(weight_pheromone, weight_width)]
+
+            # 次のノードを選択
+            next_node = random.choices(candidates, weights=weights, k=1)[0]
+
+            # Antの状態を更新
+            ant.route.append(next_node)
+            ant.width.append(graph[ant.current][next_node]["weight"])
+            ant.current = next_node
+
+            # ゴールに到達した場合
+            if ant.current == ant.destination:
+                update_pheromone(ant, graph)
+                ant_log.append(min(ant.width))
+                ant_list.remove(ant)
+                print(f"Ant Goal! → {ant.route} : {min(ant.width)}")
+            elif len(ant.route) == TTL:  # TTLを超えた場合
+                ant_log.append(0)
+                ant_list.remove(ant)
+                print(f"Ant TTL! → {ant.route}")
+
+
 def interest_next_node(
     interest_list: list[Interest], graph: nx.Graph, interest_log: list[int]
 ) -> None:
