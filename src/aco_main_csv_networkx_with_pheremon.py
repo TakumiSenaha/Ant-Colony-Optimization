@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 500  # ant，interestを放つ回数(世代)
+GENERATION = 1000  # ant，interestを放つ回数(世代)
 SIMULATIONS = 100
 
 
@@ -358,6 +358,9 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
 
 # Main処理
 if __name__ == "__main__":
+    start_node_list: list[int] = []
+    START_NODE: int = 56
+    start_node_list.append(START_NODE)
     for sim in range(SIMULATIONS):
         num_nodes = 100  # ノードの数
         num_edges = 3  # 新しいノードが既存ノードに接続する数
@@ -369,8 +372,7 @@ if __name__ == "__main__":
         # シミュレーションで使用する開始ノードと終了ノードを決定
         # START_NODE: int = random.randint(0, num_nodes - 1)
         # GOAL_NODE: int = random.randint(0, num_nodes - 1)
-        START_NODE: int = 40
-        GOAL_NODE: int = 32
+        GOAL_NODE: int = 38
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
         # graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
@@ -423,3 +425,4 @@ if __name__ == "__main__":
     # 最終的なグラフの視覚化
     # visualize_graph(graph, "network_graph.pdf")
     print("Simulations completed.")
+    print("start_node_list: ", start_node_list)
