@@ -40,7 +40,7 @@ x_values = list(range(len(data)))
 y_values = [row[10] for row in data]  # 100の幅に対応する列はインデックス10
 
 plt.figure(figsize=(10, 6))
-plt.scatter(x_values, y_values, color="blue", s=5)  # 点のサイズを調整
+plt.scatter(x_values, y_values, color="black", s=5)  # 点のサイズを調整
 
 # グラフの設定
 plt.ylim((0, 100))
@@ -50,12 +50,24 @@ plt.ylabel("最適経路の割合 [%]", fontsize=20)
 
 # 縦軸と横軸の囲いを表示
 ax = plt.gca()
-ax.spines["top"].set_visible(False)
-ax.spines["right"].set_visible(False)
+ax.spines["top"].set_visible(True)
+ax.spines["right"].set_visible(True)
 ax.spines["left"].set_visible(True)
 ax.spines["bottom"].set_visible(True)
+
+# 軸の枠線を強調（黒色、線幅を設定）
+for spine in ax.spines.values():
+    spine.set_color("black")
+    spine.set_linewidth(0.5)
 
 # フォントサイズを2倍に設定
 ax.tick_params(axis="both", which="major", labelsize=20)
 
+# 四角で囲む
+ax.set_frame_on(True)
+ax.patch.set_edgecolor("black")
+ax.patch.set_linewidth(1.5)
+
+plt.tight_layout()
+plt.savefig(export_image_name, format="svg")
 plt.show()
