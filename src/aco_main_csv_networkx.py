@@ -64,30 +64,85 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
         graph[v][u]["max_pheromone"] = width_v_to_u**5
 
 
+# ===================== 揮発式の切り替えオプション =====================
+# VOLATILIZATION_MODE:
+# 0: 既存の揮発式（固定値を基準に帯域幅で揮発量を調整）
+# 1: 帯域幅の最小値・最大値を基準に揮発量を動的に調整
+# 2: 帯域幅の平均・分散を基準に揮発量を計算
+VOLATILIZATION_MODE = 0
+
+
 def volatilize_by_width(graph: nx.Graph) -> None:
-    """各エッジのフェロモン値を双方向で別々に揮発させる処理"""
+    """
+    各エッジのフェロモン値を双方向で揮発させる
+    - VOLATILIZATION_MODE が 0 の場合: 既存の揮発式を使用
+    - VOLATILIZATION_MODE が 1 の場合: 帯域幅の最小値・最大値を基準に揮発量を調整
+    - VOLATILIZATION_MODE が 2 の場合: 平均・分散を基準に揮発量を計算
+    """
     for u, v in graph.edges():
-        # uからv、vからuの帯域幅を取得
-        width_u_to_v = graph[u][v]["weight"]
-        width_v_to_u = graph[v][u]["weight"]
+        # u → v の揮発計算
+        _apply_volatilization(graph, u, v)
+        # v → u の揮発計算
+        _apply_volatilization(graph, v, u)
 
-        # フェロモン揮発率の計算
-        rate_u_to_v = V * (0.8 ** ((100 - width_u_to_v) / 10))
-        rate_v_to_u = V * (0.8 ** ((100 - width_v_to_u) / 10))
 
-        # u→v のフェロモン揮発
-        new_pheromone_u_to_v = max(
-            math.floor(graph[u][v]["pheromone"] * rate_u_to_v),
-            graph[u][v]["min_pheromone"],
+def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
+    """
+    指定された方向のエッジ (u → v) に対して揮発処理を適用
+    """
+    # 現在のフェロモン値と帯域幅を取得
+    current_pheromone = graph[u][v]["pheromone"]
+    weight_uv = graph[u][v]["weight"]
+
+    # エッジのローカル最小・最大帯域幅を取得
+    local_min_bandwidth = graph[u][v].get("local_min_bandwidth", float("inf"))
+    local_max_bandwidth = graph[u][v].get("local_max_bandwidth", 0)
+
+    # ゼロ除算回避のための補正
+    if abs(local_max_bandwidth - local_min_bandwidth) < 1e-9:
+        local_max_bandwidth = local_min_bandwidth + 1
+
+    # 揮発率の計算
+    if VOLATILIZATION_MODE == 0:
+        # --- 既存の揮発式 ---
+        # 最大帯域幅100Mbpsを基準に固定値で揮発率を計算
+        rate = V * (0.8 ** ((100 - weight_uv) / 10))
+
+    elif VOLATILIZATION_MODE == 1:
+        # --- 帯域幅の最小値・最大値を基準に揮発量を調整 ---
+        # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
+        rate = V * (
+            1
+            - (weight_uv - local_min_bandwidth)
+            / (local_max_bandwidth - local_min_bandwidth)
         )
-        graph[u][v]["pheromone"] = new_pheromone_u_to_v
 
-        # v→u のフェロモン揮発
-        new_pheromone_v_to_u = max(
-            math.floor(graph[v][u]["pheromone"] * rate_v_to_u),
-            graph[v][u]["min_pheromone"],
-        )
-        graph[v][u]["pheromone"] = new_pheromone_v_to_u
+    elif VOLATILIZATION_MODE == 2:
+        # --- 平均・分散を基準に揮発量を調整 ---
+        # 平均帯域幅と標準偏差を計算し、それを基に揮発率を算出
+        avg_bandwidth = 0.5 * (local_min_bandwidth + local_max_bandwidth)
+        std_dev = max(
+            abs(local_max_bandwidth - avg_bandwidth), 1
+        )  # 標準偏差の代替（ゼロ除算回避）
+        gamma = 1.0  # 減衰率の調整パラメータ
+        rate = V * math.exp(-gamma * (avg_bandwidth - weight_uv) / std_dev)
+
+    else:
+        raise ValueError("Invalid VOLATILIZATION_MODE. Choose 0, 1, or 2.")
+
+    # フェロモン値を計算して更新
+    new_pheromone = max(
+        math.floor(current_pheromone * rate), graph[u][v]["min_pheromone"]
+    )
+    graph[u][v]["pheromone"] = new_pheromone
+
+    # --- ログを出力 ---
+    # print(f"Edge ({u} → {v})")
+    # print(f"  計算されたレート: {rate:.4f}")
+    # print(f"  weight (エッジ帯域幅): {weight_uv}")
+    # print(f"  local_min_bandwidth: {local_min_bandwidth}")
+    # print(f"  local_max_bandwidth: {local_max_bandwidth}")
+    # print(f"  新しいフェロモン値: {current_pheromone - new_pheromone}\n")
 
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
