@@ -67,7 +67,7 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 # 0: 既存の揮発式（固定値を基準に帯域幅で揮発量を調整）
 # 1: 帯域幅の最小値・最大値を基準に揮発量を動的に調整
 # 2: 帯域幅の平均・分散を基準に揮発量を計算
-VOLATILIZATION_MODE = 0
+VOLATILIZATION_MODE = 1
 
 
 def volatilize_by_width(graph: nx.Graph) -> None:
@@ -105,21 +105,32 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
     elif VOLATILIZATION_MODE == 1:
         # --- 帯域幅の最小値・最大値を基準に揮発量を調整 ---
         # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
-        rate = V * (
-            1
-            - (weight_uv - local_min_bandwidth)
-            / (local_max_bandwidth - local_min_bandwidth)
-        )
+        if local_max_bandwidth == local_min_bandwidth:
+            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
+            rate = 1 - (1 / max(1, weight_uv))
+        else:
+            # 使用済みエッジの場合：帯域幅の相対位置を基準に揮発量を調整
+            normalized_position = (weight_uv - local_min_bandwidth) / max(
+                1, (local_max_bandwidth - local_min_bandwidth)
+            )
+            rate = 0.99 * normalized_position
 
+    # FIXME: OverflowError: cannot convert float infinity to integer
     elif VOLATILIZATION_MODE == 2:
         # --- 平均・分散を基準に揮発量を調整 ---
         # 平均帯域幅と標準偏差を計算し、それを基に揮発率を算出
-        avg_bandwidth = 0.5 * (local_min_bandwidth + local_max_bandwidth)
-        std_dev = max(
-            abs(local_max_bandwidth - avg_bandwidth), 1
-        )  # 標準偏差の代替（ゼロ除算回避）
+        if local_max_bandwidth == local_min_bandwidth:
+            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
+            avg_bandwidth = weight_uv
+            std_dev = 1  # デフォルト値
+        else:
+            # 使用済みエッジの場合
+            avg_bandwidth = 0.5 * (local_min_bandwidth + local_max_bandwidth)
+            std_dev = max(abs(local_max_bandwidth - avg_bandwidth), 1)
+
+        # 平均・分散に基づいて揮発率を計算
         gamma = 1.0  # 減衰率の調整パラメータ
-        rate = V * math.exp(-gamma * (avg_bandwidth - weight_uv) / std_dev)
+        rate = math.exp(-gamma * (avg_bandwidth - weight_uv) / std_dev)
 
     else:
         raise ValueError("Invalid VOLATILIZATION_MODE. Choose 0, 1, or 2.")
