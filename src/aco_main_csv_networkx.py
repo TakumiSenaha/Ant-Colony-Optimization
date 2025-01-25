@@ -367,15 +367,35 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
     return graph
 
 
-def make_graph_bidirectional(graph: nx.Graph) -> nx.Graph:
-    """無向グラフを双方向グラフに変換し、双方向の同じ帯域幅とフェロモンを設定"""
+def make_graph_bidirectional(graph: nx.Graph) -> nx.DiGraph:
+    """
+    無向グラフを双方向グラフに変換し、双方向のエッジに明示的に属性を設定
+    """
     directed_G = nx.DiGraph()
 
     for u, v, data in graph.edges(data=True):
-        weight = data["weight"]  # 元のグラフの帯域幅を取得
-        # 双方向エッジを追加
-        directed_G.add_edge(u, v, weight=weight, pheromone=MIN_F)
-        directed_G.add_edge(v, u, weight=weight, pheromone=MIN_F)
+        weight = data["weight"]
+        local_min_bandwidth = data["local_min_bandwidth"]
+        local_max_bandwidth = data["local_max_bandwidth"]
+        pheromone = data["pheromone"]
+
+        # 双方向エッジを作成
+        directed_G.add_edge(
+            u,
+            v,
+            weight=weight,
+            pheromone=pheromone,
+            local_min_bandwidth=local_min_bandwidth,
+            local_max_bandwidth=local_max_bandwidth,
+        )
+        directed_G.add_edge(
+            v,
+            u,
+            weight=weight,
+            pheromone=pheromone,
+            local_min_bandwidth=local_min_bandwidth,
+            local_max_bandwidth=local_max_bandwidth,
+        )
 
     return directed_G
 
@@ -389,8 +409,22 @@ def set_optimal_path(
     node1, node2, node3 = random.sample(node_list, 3)
 
     for u, v in [(start, node1), (node1, node2), (node2, node3), (node3, goal)]:
-        graph.add_edge(u, v, weight=100, pheromone=min_pheromone)
-        graph.add_edge(v, u, weight=100, pheromone=min_pheromone)
+        graph.add_edge(
+            u,
+            v,
+            weight=100,
+            pheromone=min_pheromone,
+            local_min_bandwidth=100,
+            local_max_bandwidth=100,
+        )
+        graph.add_edge(
+            v,
+            u,
+            weight=100,
+            pheromone=min_pheromone,
+            local_min_bandwidth=100,
+            local_max_bandwidth=100,
+        )
 
     return graph
 
