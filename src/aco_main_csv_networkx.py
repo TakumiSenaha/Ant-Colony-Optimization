@@ -27,6 +27,8 @@ class Ant:
         self.destination = destination  # コンテンツ保持ノード
         self.route = route  # 辿ってきた経路の配列
         self.width = width  # 辿ってきた経路の帯域の配列
+        self.local_min_bandwidth = float("inf")  # 経路内の最小帯域
+        self.local_max_bandwidth = 0  # 経路内の最大帯域
 
     def __repr__(self):
         return f"Ant(current={self.current}, destination={self.destination}, route={self.route}, width={self.width})"
@@ -90,7 +92,9 @@ def volatilize_by_width(graph: nx.Graph) -> None:
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """
-    Antが通過した経路にフェロモンを通った方向のみに加算
+    Antがゴールに到達したとき、通過した経路のフェロモン値と帯域幅情報を更新する
+    - フェロモン値はボトルネック帯域幅 (ant.local_min_bandwidth) に基づき加算
+    - エッジごとの既知の最小・最大帯域幅 (local_min_bandwidth, local_max_bandwidth) を更新
     """
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
@@ -102,9 +106,29 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
             graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
         )
 
+        # エッジが知り得た最小帯域幅を更新（ローカル情報が小さければ更新）
+        graph[u][v]["local_min_bandwidth"] = min(
+            graph[u][v].get("local_min_bandwidth", float("inf")),
+            ant.local_min_bandwidth,
+        )
+
+        # エッジが知り得た最大帯域幅を更新（ローカル情報が大きければ更新）
+        graph[u][v]["local_max_bandwidth"] = max(
+            graph[u][v].get("local_max_bandwidth", 0), ant.local_max_bandwidth
+        )
+
+        # print(f"Update Pheromone: {u} → {v} : {graph[u][v]['pheromone']}")
+        # print(
+        #     f"Update Bandwidth: {u} → {v} : {graph[u][v]['local_min_bandwidth']} : {graph[u][v]['local_max_bandwidth']}"
+        # )
+
 
 def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> None:
-    """Antの次の移動先を決定し、移動を実行"""
+    """
+    Antの次の移動先を決定し、移動を実行
+    - Antクラスのlocal_min_bandwidth, local_max_bandwidthを更新
+    - 更新基準は、これから移動するエッジの情報と現在のAntの情報を比較する
+    """
     for ant in reversed(ant_list):
         neighbors = list(graph.neighbors(ant.current))
         # 戻ることは基本的に許されていない
@@ -131,9 +155,17 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
             # 重みに基づいて次のノードを選択
             next_node = random.choices(candidates, weights=weights, k=1)[0]
 
-            # antのルートと帯域幅を更新
+            # ---antのルートと帯域幅を更新---
+            # 次のリンクの帯域幅を取得
+            next_edge_bandwidth = graph[ant.current][next_node]["weight"]
             ant.route.append(next_node)
-            ant.width.append(graph[ant.current][next_node]["weight"])
+            ant.width.append(next_edge_bandwidth)
+            # 経路内でAntが知り得たネットワークの状況を更新（これまでのデータを次にたどるエッジの情報で更新）
+            # これは単に辿ってきた経路の幅の最小値と最大値を記録しているだけ
+            ant.local_min_bandwidth = min(ant.local_min_bandwidth, next_edge_bandwidth)
+            ant.local_max_bandwidth = max(ant.local_max_bandwidth, next_edge_bandwidth)
+
+            # 次のノードに移動
             ant.current = next_node
 
             # 目的ノードに到達した場合、フェロモンを更新してリストから削除
@@ -272,12 +304,24 @@ def load_graph(file_name: str) -> nx.Graph:
 
 
 def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
-    """Barabási-Albertモデルでグラフを生成"""
+    """
+    Barabási-Albertモデルでグラフを生成
+    - 各エッジに帯域幅(weight)をランダムに設定
+    - 各エッジに local_min_bandwidth と local_max_bandwidth を初期化
+    """
     graph = nx.barabasi_albert_graph(num_nodes, num_edges)
     for u, v in graph.edges():
-        graph[u][v]["weight"] = (
-            random.randint(lb, ub) * 10
-        )  # リンクの容量（重み）を設定
+        # リンクの帯域幅(weight)をランダムに設定
+        weight = random.randint(lb, ub) * 10
+        graph[u][v]["weight"] = weight
+
+        # 各エッジが知り得ている最小・最大帯域幅を初期化
+        graph[u][v]["local_min_bandwidth"] = weight
+        graph[u][v]["local_max_bandwidth"] = weight
+
+        # フェロモン値を初期化
+        graph[u][v]["pheromone"] = MIN_F
+
     return graph
 
 
@@ -319,13 +363,19 @@ def save_graph(graph: nx.Graph):
 def save_graph_with_pheromone(graph: nx.Graph, file_name: str) -> None:
     """
     NetworkX グラフをエッジリスト形式でフェロモン情報付きで保存
-    フォーマット: source target weight pheromone
+    フォーマット: source target weight pheromone local_min_bandwidth local_max_bandwidth
     """
     with open(file_name, "w") as f:
         for u, v, data in graph.edges(data=True):
             weight = data.get("weight", 0)
             pheromone = data.get("pheromone", 0)
-            f.write(f"{u} {v} {weight} {pheromone}\n")
+            local_min_bandwidth = data.get("local_min_bandwidth", float("inf"))
+            local_max_bandwidth = data.get("local_max_bandwidth", 0)
+
+            f.write(
+                f"{u} {v} {weight} {pheromone} {local_min_bandwidth} {local_max_bandwidth}\n"
+            )
+
     print(f"グラフを保存しました: {file_name}")
 
 
