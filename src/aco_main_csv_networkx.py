@@ -27,8 +27,6 @@ class Ant:
         self.destination = destination  # コンテンツ保持ノード
         self.route = route  # 辿ってきた経路の配列
         self.width = width  # 辿ってきた経路の帯域の配列
-        self.local_min_bandwidth = float("inf")  # 経路内の最小帯域
-        self.local_max_bandwidth = 0  # 経路内の最大帯域
 
     def __repr__(self):
         return f"Ant(current={self.current}, destination={self.destination}, route={self.route}, width={self.width})"
@@ -95,12 +93,8 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
     weight_uv = graph[u][v]["weight"]
 
     # エッジのローカル最小・最大帯域幅を取得
-    local_min_bandwidth = graph[u][v].get("local_min_bandwidth", float("inf"))
-    local_max_bandwidth = graph[u][v].get("local_max_bandwidth", 0)
-
-    # ゼロ除算回避のための補正
-    if abs(local_max_bandwidth - local_min_bandwidth) < 1e-9:
-        local_max_bandwidth = local_min_bandwidth + 1
+    local_min_bandwidth = graph[u][v]["local_min_bandwidth"]
+    local_max_bandwidth = graph[u][v]["local_max_bandwidth"]
 
     # 揮発率の計算
     if VOLATILIZATION_MODE == 0:
@@ -148,14 +142,13 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """
     Antがゴールに到達したとき、通過した経路のフェロモン値と帯域幅情報を更新する
-    - フェロモン値はボトルネック帯域幅 (ant.local_min_bandwidth) に基づき加算
-    - エッジごとの既知の最小・最大帯域幅 (local_min_bandwidth, local_max_bandwidth) を更新
+    - フェロモン値はボトルネック帯域幅 (min(ant.width)) に基づき加算
+    - エッジごとの既知の最小・最大帯域幅 (max(ant.width), local_max_bandwidth) を更新
     """
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
         # pheromone_increase = min(ant.width) ** 2
         pheromone_increase = math.exp(min(ant.width) / 10)
-
         # u→v のフェロモンを更新（通った方向のみ）
         graph[u][v]["pheromone"] = min(
             graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
@@ -163,13 +156,13 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
 
         # エッジが知り得た最小帯域幅を更新（ローカル情報が小さければ更新）
         graph[u][v]["local_min_bandwidth"] = min(
-            graph[u][v].get("local_min_bandwidth", float("inf")),
-            ant.local_min_bandwidth,
+            graph[u][v]["local_min_bandwidth"],
+            min(ant.width),
         )
 
         # エッジが知り得た最大帯域幅を更新（ローカル情報が大きければ更新）
         graph[u][v]["local_max_bandwidth"] = max(
-            graph[u][v].get("local_max_bandwidth", 0), ant.local_max_bandwidth
+            graph[u][v]["local_max_bandwidth"], max(ant.width)
         )
 
         # print(f"Update Pheromone: {u} → {v} : {graph[u][v]['pheromone']}")
@@ -181,8 +174,6 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
 def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> None:
     """
     Antの次の移動先を決定し、移動を実行
-    - Antクラスのlocal_min_bandwidth, local_max_bandwidthを更新
-    - 更新基準は、これから移動するエッジの情報と現在のAntの情報を比較する
     """
     for ant in reversed(ant_list):
         neighbors = list(graph.neighbors(ant.current))
@@ -215,10 +206,6 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
             next_edge_bandwidth = graph[ant.current][next_node]["weight"]
             ant.route.append(next_node)
             ant.width.append(next_edge_bandwidth)
-            # 経路内でAntが知り得たネットワークの状況を更新（これまでのデータを次にたどるエッジの情報で更新）
-            # これは単に辿ってきた経路の幅の最小値と最大値を記録しているだけ
-            ant.local_min_bandwidth = min(ant.local_min_bandwidth, next_edge_bandwidth)
-            ant.local_max_bandwidth = max(ant.local_max_bandwidth, next_edge_bandwidth)
 
             # 次のノードに移動
             ant.current = next_node
@@ -424,8 +411,8 @@ def save_graph_with_pheromone(graph: nx.Graph, file_name: str) -> None:
         for u, v, data in graph.edges(data=True):
             weight = data.get("weight", 0)
             pheromone = data.get("pheromone", 0)
-            local_min_bandwidth = data.get("local_min_bandwidth", float("inf"))
-            local_max_bandwidth = data.get("local_max_bandwidth", 0)
+            local_min_bandwidth = data.get("local_min_bandwidth")
+            local_max_bandwidth = data.get("local_max_bandwidth")
 
             f.write(
                 f"{u} {v} {weight} {pheromone} {local_min_bandwidth} {local_max_bandwidth}\n"
