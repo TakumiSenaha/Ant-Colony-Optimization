@@ -417,14 +417,117 @@ def make_graph_bidirectional(graph: nx.Graph) -> nx.DiGraph:
 
 
 def set_optimal_path(
-    graph: nx.Graph, start: int, goal: int, min_pheromone: int = 100
+    graph: nx.Graph,
+    start: int,
+    goal: int,
+    min_pheromone: int = 100,
+    max_hops: int = 2,
+    max_attempts: int = 100,
+    max_weight: int = 100,
 ) -> nx.Graph:
-    """最適経路を設定し、帯域幅を100に固定"""
-    num_nodes = len(graph.nodes())
-    node_list = [i for i in range(num_nodes) if i not in {start, goal}]
-    node1, node2, node3 = random.sample(node_list, 3)
+    """
+    指定されたスタートノードとゴールノードの間に最適経路を設定する。
+    - 経路が見つかるまで最大 max_attempts 回試行。
+    - 経路が見つからない場合はネットワークを再生成する。
 
-    for u, v in [(start, node1), (node1, node2), (node2, node3), (node3, goal)]:
+    - start: スタートノード
+    - goal: ゴールノード
+    - min_pheromone: 最適経路のエッジに設定する初期フェロモン値
+    - max_hops: ランダム経路の最大ホップ数
+    - max_attempts: 試行回数の上限
+    """
+    attempt = 0
+
+    while attempt < max_attempts:
+        attempt += 1
+        print(f"Attempt {attempt}: Setting optimal path from {start} to {goal}...")
+
+        # ランダム経路の設定
+        current_node = start
+        path = [current_node]
+        visited = set(path)
+
+        # 失敗するごとにランダム経路の最大ホップ数を設定を増加して緩和する．
+        max_hops = max_hops + attempt
+
+        for _ in range(max_hops):
+            neighbors = list(graph.neighbors(current_node))
+            # 訪問済みノードを除外
+            neighbors = [n for n in neighbors if n not in visited]
+
+            if not neighbors:
+                print(
+                    f"No further neighbors from node {current_node}. Stopping path extension."
+                )
+                break
+
+            # 次のノードをランダムに選択
+            next_node = random.choice(neighbors)
+            path.append(next_node)
+            visited.add(next_node)
+
+            # ゴールノードに到達したら終了
+            if next_node == goal:
+                break
+
+            current_node = next_node
+
+        # 経路がゴールに到達している場合、帯域幅を設定して終了
+        if path[-1] == goal:
+            print(f"Random path from {start} to {goal}: {path}")
+            for i in range(len(path) - 1):
+                u, v = path[i], path[i + 1]
+                graph[u][v]["weight"] = max_weight
+                graph[v][u]["weight"] = max_weight
+                graph[u][v]["pheromone"] = min_pheromone
+                graph[v][u]["pheromone"] = min_pheromone
+                graph[u][v]["local_min_bandwidth"] = max_weight
+                graph[v][u]["local_min_bandwidth"] = max_weight
+                graph[u][v]["local_max_bandwidth"] = max_weight
+                graph[v][u]["local_max_bandwidth"] = max_weight
+                print(f"Set optimal path edge ({u} → {v}) to weight=100.")
+            return graph
+
+        print(f"Path from {start} to {goal} did not reach goal. Retrying...")
+
+    # 最大試行回数を超えた場合
+    print(
+        f"Failed to find a valid path from {start} to {goal} after {max_attempts} attempts."
+    )
+    return 0
+
+
+def add_optimal_path(
+    graph: nx.Graph,
+    start: int,
+    goal: int,
+    min_pheromone: int = 100,
+    num_intermediate_nodes: int = 5,
+) -> nx.Graph:
+    """
+    最適経路を設定し、帯域幅を100に固定。
+
+    - start: スタートノード
+    - goal: ゴールノード
+    - min_pheromone: 最適経路のエッジに設定する初期フェロモン値
+    - num_intermediate_nodes: 経由する中間ノードの数
+    """
+    num_nodes = len(graph.nodes())
+    if num_intermediate_nodes >= num_nodes - 2:
+        raise ValueError("中間ノードの数が多すぎます。")
+
+    # スタートノードとゴールノード以外のノードをランダムに選択
+    intermediate_nodes = random.sample(
+        [i for i in range(num_nodes) if i not in {start, goal}], num_intermediate_nodes
+    )
+
+    # 経路のノードを結合
+    full_path = [start] + intermediate_nodes + [goal]
+
+    print(f"Generated long path: {full_path}")
+
+    # 経路に基づきエッジを設定
+    for u, v in zip(full_path[:-1], full_path[1:]):
         graph.add_edge(
             u,
             v,
@@ -441,6 +544,7 @@ def set_optimal_path(
             local_min_bandwidth=100,
             local_max_bandwidth=100,
         )
+        print(f"Set optimal path edge ({u} → {v}) to weight=100.")
 
     return graph
 
@@ -497,16 +601,23 @@ if __name__ == "__main__":
         graph = make_graph_bidirectional(graph)
 
         # シミュレーションで使用する開始ノードと終了ノードを決定
-        START_NODE: int = random.randint(0, num_nodes - 1)
-        GOAL_NODE: int = random.randint(0, num_nodes - 1)
+        while True:
+            START_NODE: int = random.randint(0, num_nodes - 1)
+            GOAL_NODE: int = random.randint(0, num_nodes - 1)
+            if START_NODE != GOAL_NODE:
+                break
 
         next_start_node = random.randint(0, num_nodes - 1)
         # START_NODE: int = 30
         # GOAL_NODE: int = 32
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
-        graph = set_optimal_path(graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F)
+        graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
         # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
+        while graph == 0:
+            graph = ba_graph(num_nodes, num_edges)
+            graph = make_graph_bidirectional(graph)
+            graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
