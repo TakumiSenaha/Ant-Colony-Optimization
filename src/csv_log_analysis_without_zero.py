@@ -18,20 +18,21 @@ with open(csv_file_name, "r") as f:
         except ValueError:
             print(f"Error converting row to float: {row}")
 
-# 縦列が探索回数(1,2,3...)・横行(0,10,20...100)がその探索回数におけるwidthの出現回数
-counts = [[0] * 11 for _ in range(len(data[0]))]
+# 縦列が探索回数(1,2,3...)・横行(10,20...100)がその探索回数におけるwidthの出現回数
+counts = [[0] * 10 for _ in range(len(data[0]))]  # 0 Mbps を除外して 10 区間に修正
 
-# 集計
+# 集計 (帯域幅 0 を除外)
 for row in data:
     for search_count, width in enumerate(row):
         try:
-            index = int(width // 10)
-            if 0 <= index <= 10:  # インデックスが正しい範囲にあるかチェック
-                counts[search_count][index] += 1
+            if width > 0:  # 帯域幅 0 を除外
+                index = int(width // 10) - 1  # インデックスを調整 (-1で帯域幅 0 を除外)
+                if 0 <= index < 10:  # インデックスが正しい範囲にあるかチェック
+                    counts[search_count][index] += 1
         except ValueError:
             print(f"Error processing width: {width}")
 
-# 横行のwidthの出現回数の総和
+# 横行のwidthの出現回数の総和 (帯域幅 0 を除外した結果)
 totals = [sum(col) for col in counts]
 
 # 縦列が探索回数・横行がその探索回数におけるwidthの割合
@@ -41,7 +42,7 @@ ratios = [
 ]
 
 # ! グラフ描写---------------------------------------------------------------
-# 棒グラフの棒のカラー
+# 棒グラフの棒のカラー (元の順序を維持、0 Mbps を削除)
 color = [
     "#4F71BE",  # 100 Mbps
     "#DE8344",  # 90 Mbps
@@ -53,7 +54,6 @@ color = [
     "#934D21",  # 30 Mbps
     "#636363",  # 20 Mbps
     "#937424",  # 10 Mbps
-    "#355D8D",  # 0 Mbps
 ]
 
 # データの左右反転
@@ -82,8 +82,8 @@ for i, row in enumerate(transpose):
         row,
         width=1.0,
         bottom=bottom,
-        color=color[i],
-        label=f"帯域幅 {10 * (10 - i)}",
+        color=color[i],  # 対応する色を指定
+        label=f"帯域幅 {10 * (10 - i)} Mbps",  # ラベルは元の順序を維持
     )
     bottom = [sum(x) for x in zip(bottom, row)]
 
@@ -100,7 +100,7 @@ plt.legend(
     title="ボトルネック帯域 (Mbps)",
     title_fontsize=12,
     fontsize=10,
-    loc="center right",
+    loc="lower right",
 )
 
 plt.gca().tick_params(axis="both", which="major", labelsize=20)
