@@ -17,8 +17,8 @@ with open(csv_file_name, "r") as f:
             data.append(list(map(float, row)))
         except ValueError:
             print(f"Error converting row to float: {row}")
-            # エラー時はデフォルト値（0を含む帯域ごとに11要素）を追加
-            data.append([0] * 11)
+            # エラー時はスキップ
+            continue
 
 # 世代数をデータから取得して、必要な構造を初期化
 num_generations = len(data)  # 世代数（データ行数）
@@ -29,6 +29,9 @@ ratios = [[0] * 11 for _ in range(num_generations)]  # 割合計算用
 
 for search_count, row in enumerate(data):
     for width in row:
+        # 幅が 0 のデータは無視
+        if width == 0:
+            continue
         try:
             index = int(width // 10)  # 帯域幅を10刻みでカテゴリ化
             if 0 <= index <= 10:
@@ -57,8 +60,8 @@ print(f"Sum of averages: {sum(average_ratios):.2f}%")
 
 # ! 結果の出力 --------------------------------------------------------------
 
-print("ボトルネック帯域ごとの平均割合 (0も含む):")
-for i in range(11):
+print("ボトルネック帯域ごとの平均割合:")
+for i in range(1, 11):  # 0をスキップ
     print(f"帯域幅 {i * 10}: {average_ratios[i]:.2f}%")
 
 # ! グラフの描画 -------------------------------------------------------------
@@ -77,19 +80,19 @@ color = [
     "#937424",
     "#355D8D",
 ]
-labels = [f"{i * 10}" for i in range(11)]
+labels = [f"{i * 10}" for i in range(1, 11)]  # 0を除外
 
 # グラフデータとラベルが一致しない場合の警告と修正
-if len(average_ratios) != len(labels):
+if len(average_ratios[1:]) != len(labels):
     print("Warning: Label count and average_ratios count do not match.")
-    labels = [f"{i * 10}" for i in range(len(average_ratios))]
-    color = color[: len(average_ratios)]
+    labels = [f"{i * 10}" for i in range(len(average_ratios[1:]))]
+    color = color[: len(average_ratios[1:])]
 
 # 棒グラフを描画
-plt.bar(labels, average_ratios, color=color, width=0.8)
+plt.bar(labels, average_ratios[1:], color=color, width=0.8)  # 0を除外したデータを使用
 
 # グラフの設定
 plt.xlabel("Bottleneck Bandwidth")
 plt.ylabel("Average Percentage (%)")
-plt.title("Average Routing Percentage by Bottleneck Bandwidth (Including 0)")
+plt.title("Average Routing Percentage by Bottleneck Bandwidth (Excluding 0)")
 plt.show()

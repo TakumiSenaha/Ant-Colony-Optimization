@@ -39,6 +39,7 @@ previous_ratios = process_csv_data(previous_csv_file_name)
 dynamic_ratios = None
 if os.path.exists(dynamic_csv_file_name):
     dynamic_ratios = process_csv_data(dynamic_csv_file_name)
+dynamic_ratios = None
 
 # ボトルネック帯域幅が100Mbpsの場合の割合を抽出
 x_values = list(range(len(previous_ratios)))
