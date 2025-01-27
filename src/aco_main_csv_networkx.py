@@ -150,6 +150,36 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
     # print(f"  新しいフェロモン値: {current_pheromone - new_pheromone}\n")
 
 
+def calculate_pheromone_increase(
+    bottleneck_bandwidth: int,
+    local_min_bandwidth: int,
+    local_max_bandwidth: int,
+    fixed_min_value: int = 10,
+) -> float:
+    """
+    フェロモン付加量を計算する
+    - local_min_bandwidth と local_max_bandwidth に応じて調整
+    """
+    if bottleneck_bandwidth == local_max_bandwidth == local_min_bandwidth:
+        pheromone_increase = bottleneck_bandwidth
+
+    elif bottleneck_bandwidth == local_max_bandwidth:
+        pheromone_increase = bottleneck_bandwidth**2
+        # if bottleneck_bandwidth != 100:
+        #     # エラーを吐く
+        #     print(bottleneck_bandwidth, local_min_bandwidth, local_max_bandwidth)
+        #     raise RuntimeError(
+        #         f"Error: bottleneck_bandwidth ({bottleneck_bandwidth}) != 100"
+        #     )
+    elif local_min_bandwidth < local_max_bandwidth:
+        # local_min_bandwidth を引く
+        pheromone_increase = (bottleneck_bandwidth - local_min_bandwidth) * 10
+    else:
+        pheromone_increase = bottleneck_bandwidth
+
+    return max(0, pheromone_increase)  # 負の値を防ぐために max(0) を適用
+
+
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """
     Antがゴールに到達したとき、通過した経路のフェロモン値と帯域幅情報を更新する
@@ -159,12 +189,8 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
         # pheromone_increase = min(ant.width) ** 2
-        pheromone_increase = math.exp(min(ant.width) / 10)
-        pheromone_increase = min(ant.width) * 10
+        # pheromone_increase = math.exp(min(ant.width) / 10)
         # u→v のフェロモンを更新（通った方向のみ）
-        graph[u][v]["pheromone"] = min(
-            graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
-        )
 
         # エッジが知り得た最小帯域幅を更新（ローカル情報が小さければ更新）
         graph[u][v]["local_min_bandwidth"] = min(
@@ -175,6 +201,16 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         # エッジが知り得た最大帯域幅を更新（ローカル情報が大きければ更新）
         graph[u][v]["local_max_bandwidth"] = max(
             graph[u][v]["local_max_bandwidth"], max(ant.width)
+        )
+
+        pheromone_increase = calculate_pheromone_increase(
+            bottleneck_bandwidth=min(ant.width),
+            local_min_bandwidth=graph[u][v]["local_min_bandwidth"],
+            local_max_bandwidth=graph[u][v]["local_max_bandwidth"],
+        )
+
+        graph[u][v]["pheromone"] = min(
+            graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
         )
 
         # print(f"Update Pheromone: {u} → {v} : {graph[u][v]['pheromone']}")
