@@ -352,6 +352,8 @@ def load_graph(file_name: str) -> nx.Graph:
     # 読み込んだグラフのエッジに初期フェロモン値を追加
     for u, v in graph.edges():
         graph[u][v]["pheromone"] = MIN_F
+        graph[u][v]["local_min_bandwidth"] = graph[u][v]["weight"]
+        graph[u][v]["local_max_bandwidth"] = graph[u][v]["weight"]
 
     return graph
 
@@ -374,6 +376,8 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
 
         # フェロモン値を初期化
         graph[u][v]["pheromone"] = MIN_F
+        graph[u][v]["max_pheromone"] = MAX_F
+        graph[u][v]["min_pheromone"] = MIN_F
 
     return graph
 
@@ -455,9 +459,9 @@ def save_graph_with_pheromone(graph: nx.Graph, file_name: str) -> None:
     with open(file_name, "w") as f:
         for u, v, data in graph.edges(data=True):
             weight = data.get("weight", 0)
-            pheromone = data.get("pheromone", 0)
             local_min_bandwidth = data.get("local_min_bandwidth")
             local_max_bandwidth = data.get("local_max_bandwidth")
+            pheromone = data.get("pheromone")
 
             f.write(
                 f"{u} {v} {weight} {pheromone} {local_min_bandwidth} {local_max_bandwidth}\n"

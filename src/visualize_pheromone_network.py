@@ -9,7 +9,14 @@ def load_graph_with_pheromone(file_name: str) -> nx.Graph:
     """
     graph = nx.read_edgelist(
         file_name,
-        data=[("weight", float), ("pheromone", float)],
+        data=[
+            ("weight", float),
+            ("pheromone", float),
+            # ("min_pheromone", float),
+            # ("max_pheromone", float),
+            ("local_min_bandwidth", float),
+            ("local_max_bandwidth", float),
+        ],
         nodetype=int,
         create_using=nx.DiGraph,
     )
