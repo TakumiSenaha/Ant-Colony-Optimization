@@ -546,7 +546,7 @@ def add_optimal_path(
     - start: スタートノード
     - goal: ゴールノード
     - min_pheromone: 最適経路のエッジに設定する初期フェロモン値
-    - num_intermediate_nodes: 経由する中間ノードの数
+    - num_intermediate_nodes: 経由する中間ノードの数: ホップ数はnum_intermediate_nodes+1
     """
     num_nodes = len(graph.nodes())
     if num_intermediate_nodes >= num_nodes - 2:
@@ -590,6 +590,19 @@ def save_graph(graph: nx.Graph):
     file_name = datetime.now().strftime("%Y%m%d_%H%M%S") + ".edgelist"
     nx.write_edgelist(graph, file_name, data=["pheromone", "weight"])
     return file_name
+
+
+def save_graph_without_pheromone(graph: nx.Graph, file_name: str) -> None:
+    """
+    NetworkX グラフをエッジリスト形式で保存
+    """
+    with open(file_name, "w") as f:
+        for u, v, data in graph.edges(data=True):
+            weight = data.get("weight", 0)
+
+            f.write(f"{u} {v} {weight}\n")
+
+    print(f"グラフを保存しました: {file_name}")
 
 
 def save_graph_with_pheromone(graph: nx.Graph, file_name: str) -> None:
@@ -648,6 +661,10 @@ if __name__ == "__main__":
         # GOAL_NODE: int = 32
 
         # 最適経路を追加し、その経路の帯域をすべて100に設定
+        # graph = add_optimal_path(
+        #     graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F, num_intermediate_nodes=0
+        # )
+
         graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
         # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
         while graph == 0:
@@ -689,6 +706,7 @@ if __name__ == "__main__":
             for _ in range(TTL):
                 interest_next_node(interest_list, graph, interest_log)
 
+        # save_graph_without_pheromone(graph, "ba_model_graph")
         save_graph_with_pheromone(graph, "ba_model_graph_with_pheromone")
 
         # 各シミュレーションのログをCSVに保存
@@ -703,4 +721,4 @@ if __name__ == "__main__":
     # 最終的なグラフの視覚化
     # visualize_graph(graph, "network_graph.pdf")
     print("Simulations completed.")
-    print(next_start_node, GOAL_NODE)
+    print(START_NODE, GOAL_NODE)
