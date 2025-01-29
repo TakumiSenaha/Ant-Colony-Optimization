@@ -22,6 +22,7 @@ def process_csv_data(csv_file_name):
     # 各世代ごとの帯域幅集計
     for row in data:
         for search_count, width in enumerate(row):
+            # if width > 0:  # 探索失敗 (帯域幅が0) を除外
             counts[search_count][int(width) // 10] += 1
 
     totals = [sum(col) for col in counts]
