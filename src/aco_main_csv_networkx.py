@@ -102,18 +102,19 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
         # 最大帯域幅100Mbpsを基準に固定値で揮発率を計算
         rate = V * (0.8 ** ((100 - weight_uv) / 10))
 
+    # 0.99に設定する方が，最適解既知でないときに如実に良くなる．
     elif VOLATILIZATION_MODE == 1:
         # --- 帯域幅の最小値・最大値を基準に揮発量を調整 ---
         # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
         if local_max_bandwidth == local_min_bandwidth:
             # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            rate = 0.90
+            rate = 0.99
         else:
             # 使用済みエッジの場合：帯域幅の相対位置を基準に揮発量を調整
             normalized_position = (weight_uv - local_min_bandwidth) / max(
                 1, (local_max_bandwidth - local_min_bandwidth)
             )
-            rate = 0.90 * normalized_position
+            rate = 0.99 * normalized_position
 
     # FIXME: OverflowError: cannot convert float infinity to integer
     elif VOLATILIZATION_MODE == 2:
@@ -208,6 +209,9 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
             local_min_bandwidth=graph[u][v]["local_min_bandwidth"],
             local_max_bandwidth=graph[u][v]["local_max_bandwidth"],
         )
+
+        # pheromone_increase = math.exp(min(ant.width) / 10)
+        # pheromone_increase = min(ant.width) * 10
 
         graph[u][v]["pheromone"] = min(
             graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
