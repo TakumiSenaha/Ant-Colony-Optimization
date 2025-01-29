@@ -646,35 +646,45 @@ if __name__ == "__main__":
         num_nodes = 100  # ノードの数
         num_edges = 3  # 新しいノードが既存ノードに接続する数
 
-        # BAモデルでグラフを生成
-        graph: nx.Graph = ba_graph(num_nodes, num_edges)
-        # graph = load_graph("ba_model_graph")
+        # シミュレーションで使用する開始ノードと終了ノード
+        START_NODE: int
+        GOAL_NODE: int
 
-        # グラフを双方向に変換
-        graph = make_graph_bidirectional(graph)
+        use_existing_graph = False  # 既存のグラフを使用するかどうか
 
-        # シミュレーションで使用する開始ノードと終了ノードを決定
-        while True:
-            START_NODE: int = random.randint(0, num_nodes - 1)
-            GOAL_NODE: int = random.randint(0, num_nodes - 1)
-            if START_NODE != GOAL_NODE:
-                break
-
-        next_start_node = random.randint(0, num_nodes - 1)
-        # START_NODE: int = 30
-        # GOAL_NODE: int = 32
-
-        # 最適経路を追加し、その経路の帯域をすべて100に設定
-        # graph = add_optimal_path(
-        #     graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F, num_intermediate_nodes=0
-        # )
-
-        graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
-        # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
-        while graph == 0:
-            graph = ba_graph(num_nodes, num_edges)
+        if not use_existing_graph:
+            # BAモデルでグラフを生成
+            graph: nx.Graph = ba_graph(num_nodes, num_edges)
+            # グラフを双方向に変換
             graph = make_graph_bidirectional(graph)
+
+            # シミュレーションで使用する開始ノードと終了ノードを決定
+            while True:
+                START_NODE = random.randint(0, num_nodes - 1)
+                GOAL_NODE = random.randint(0, num_nodes - 1)
+                if START_NODE != GOAL_NODE:
+                    break
+
+            # 最適経路を追加し、その経路の帯域をすべて100に設定
+            # graph = add_optimal_path(
+            #     graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F, num_intermediate_nodes=0
+            # )
             graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
+            # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
+            while graph == 0:
+                graph = ba_graph(num_nodes, num_edges)
+                graph = make_graph_bidirectional(graph)
+                graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
+
+        else:
+            graph = load_graph("ba_model_graph")
+            # グラフを双方向に変換
+            graph = make_graph_bidirectional(graph)
+
+            START_NODE = 30
+            GOAL_NODE = 32
+
+        # next_start_node = random.randint(0, num_nodes - 1)
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
