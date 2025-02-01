@@ -108,13 +108,13 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
         # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
         if local_max_bandwidth == local_min_bandwidth:
             # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            rate = 0.99
+            rate = 0.98
         else:
             # 使用済みエッジの場合：帯域幅の相対位置を基準に揮発量を調整
             normalized_position = (weight_uv - local_min_bandwidth) / max(
                 1, (local_max_bandwidth - local_min_bandwidth)
             )
-            rate = 0.99 * normalized_position
+            rate = 0.98 * normalized_position
 
     # FIXME: OverflowError: cannot convert float infinity to integer
     elif VOLATILIZATION_MODE == 2:
@@ -165,7 +165,7 @@ def calculate_pheromone_increase(
         pheromone_increase = bottleneck_bandwidth
 
     elif bottleneck_bandwidth == local_max_bandwidth:
-        pheromone_increase = bottleneck_bandwidth**2
+        pheromone_increase = bottleneck_bandwidth**3
         # if bottleneck_bandwidth != 100:
         #     # エラーを吐く
         #     print(bottleneck_bandwidth, local_min_bandwidth, local_max_bandwidth)
