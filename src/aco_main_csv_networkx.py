@@ -665,9 +665,13 @@ if __name__ == "__main__":
                 if START_NODE != GOAL_NODE:
                     break
 
-            # 最適経路を追加し、その経路の帯域をすべて100に設定
+            # # 最適経路を追加し、その経路の帯域をすべて100に設定
             # graph = add_optimal_path(
-            #     graph, START_NODE, GOAL_NODE, min_pheromone=MIN_F, num_intermediate_nodes=0
+            #     graph,
+            #     START_NODE,
+            #     GOAL_NODE,
+            #     min_pheromone=MIN_F,
+            #     num_intermediate_nodes=6,
             # )
             graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
             # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
