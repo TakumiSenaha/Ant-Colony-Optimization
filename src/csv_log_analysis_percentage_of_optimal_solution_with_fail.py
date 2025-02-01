@@ -61,13 +61,13 @@ plt.figure(figsize=(10, 6))
 plt.scatter(
     x_values,
     success_y_values,
-    color="blue",
+    color="black",
     s=5,
-    label="成功割合（帯域幅100Mbps）",
+    label="Bottleneck bandwidth: 100Mbps",
 )
 
 # 探索失敗率を描画
-plot_failure_rates = True  # Trueにすると探索失敗率を描画
+plot_failure_rates = False  # Trueにすると探索失敗率を描画
 if plot_failure_rates:
     plt.plot(
         x_values,
@@ -79,8 +79,8 @@ if plot_failure_rates:
 
 # グラフ設定
 plt.ylim((0, 100))
-plt.xlabel("世代", fontsize=20)
-plt.ylabel("割合 [%]", fontsize=20)
+plt.xlabel("Generation", fontsize=20)
+plt.ylabel("Ratio [%]", fontsize=20)
 plt.legend(fontsize=15, loc="center right")  # 凡例の位置とフォントサイズ
 
 # 軸と枠線の強調
