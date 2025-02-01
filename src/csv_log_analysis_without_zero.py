@@ -82,22 +82,22 @@ for i, row in enumerate(transpose):
         row,
         width=1.0,
         bottom=bottom,
-        color=color[i],  # 対応する色を指定
-        label=f"帯域幅 {10 * (10 - i)} Mbps",  # ラベルは元の順序を維持
+        color=color[i],  # Specify corresponding color
+        label=f"Bandwidth {10 * (10 - i)} Mbps",  # Maintain original order in label
     )
     bottom = [sum(x) for x in zip(bottom, row)]
 
-# グラフの設定
+# Graph settings
 plt.ylim((0, 100))
-plt.xlabel("世代", fontsize=20)
-plt.ylabel("ルーティング割合 [%]", fontsize=20)
+plt.xlabel("Generation", fontsize=20)
+plt.ylabel("Routing Ratio [%]", fontsize=20)
 
-# 凡例を取得して逆順に設定
+# Reverse legend order
 handles, labels = plt.gca().get_legend_handles_labels()
 plt.legend(
     handles[::-1],
     labels[::-1],
-    title="ボトルネック帯域 (Mbps)",
+    title="Bottleneck Bandwidth (Mbps)",
     title_fontsize=12,
     fontsize=10,
     loc="lower right",

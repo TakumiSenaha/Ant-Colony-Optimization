@@ -90,7 +90,7 @@ for i, row in enumerate(transpose):
 # グラフの設定
 plt.ylim((0, 100))
 plt.xlabel("世代", fontsize=20)
-plt.ylabel("ルーティング割合 [%]", fontsize=20)
+plt.ylabel("ルーチング割合 [%]", fontsize=20)
 
 # 凡例を取得して逆順に設定
 handles, labels = plt.gca().get_legend_handles_labels()
