@@ -104,6 +104,7 @@ dependencies:
   - xz=5.4.6=h80987f9_1
   - zlib=1.2.13=h53f4e23_5
   - zstd=1.5.5=hd90d995_2
+  - pytest
   - pip:
       - cairocffi==1.7.0
       - cairosvg==2.7.1
