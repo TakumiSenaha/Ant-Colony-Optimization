@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 500  # ant，interestを放つ回数(世代)
+GENERATION = 1000  # ant，interestを放つ回数(世代)
 SIMULATIONS = 100
 
 
@@ -164,7 +164,7 @@ def calculate_pheromone_increase(
     if bottleneck_bandwidth == local_max_bandwidth == local_min_bandwidth:
         pheromone_increase = bottleneck_bandwidth
 
-    elif bottleneck_bandwidth == local_max_bandwidth:
+    elif bottleneck_bandwidth >= local_max_bandwidth:
         pheromone_increase = bottleneck_bandwidth**3
         # if bottleneck_bandwidth != 100:
         #     # エラーを吐く
@@ -175,6 +175,11 @@ def calculate_pheromone_increase(
     elif local_min_bandwidth < local_max_bandwidth:
         # local_min_bandwidth を引く
         pheromone_increase = (bottleneck_bandwidth - local_min_bandwidth) * 10
+        # denominator = max(
+        #     1, local_max_bandwidth - local_min_bandwidth
+        # )  # 分母が0になるのを防ぐ
+        # normalized_factor = (bottleneck_bandwidth - local_min_bandwidth) / denominator
+        # pheromone_increase = int(normalized_factor * 100)
     else:
         pheromone_increase = bottleneck_bandwidth
 
@@ -665,20 +670,22 @@ if __name__ == "__main__":
                 if START_NODE != GOAL_NODE:
                     break
 
-            # # 最適経路を追加し、その経路の帯域をすべて100に設定
-            # graph = add_optimal_path(
-            #     graph,
-            #     START_NODE,
-            #     GOAL_NODE,
-            #     min_pheromone=MIN_F,
-            #     num_intermediate_nodes=6,
-            # )
-            graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
-            # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
-            while graph == 0:
-                graph = ba_graph(num_nodes, num_edges)
-                graph = make_graph_bidirectional(graph)
-                graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
+            # 最適経路を追加し、その経路の帯域をすべて100に設定
+            graph = add_optimal_path(
+                graph,
+                START_NODE,
+                GOAL_NODE,
+                min_pheromone=MIN_F,
+                num_intermediate_nodes=6,
+            )
+
+            # # 存在するある1つの経路を最適経路とするため、その経路の帯域をすべて100に設定
+            # graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
+            # # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
+            # while graph == 0:
+            #     graph = ba_graph(num_nodes, num_edges)
+            #     graph = make_graph_bidirectional(graph)
+            #     graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
 
         else:
             graph = load_graph("ba_model_graph")
