@@ -7,16 +7,16 @@ import matplotlib.pyplot as plt
 
 def process_csv_data(csv_file_name):
     """
-    CSVデータを処理し、各世代において
-    シミュレーション100回中に100Mbpsが記録された割合を計算する。
+    Process CSV data and calculate the percentage of simulation runs
+    in which 100 Mbps was recorded in each generation.
 
-    前提：
-      - CSVの各行は1回のシミュレーション実行を表し、
-        各列は世代に対応している。
-      - 各値は記録された帯域幅（例: 0, 10, 20, …, 100）である。
+    Assumptions:
+      - Each row represents a single simulation run.
+      - Each column corresponds to a generation.
+      - Each value represents a recorded bandwidth (e.g., 0, 10, 20, ..., 100).
 
-    各世代について、0～100Mbpsを10刻み（インデックス0～10）にカウントし、
-    そのうちインデックス10（100Mbps）の割合を算出する。
+    This function counts occurrences of different bandwidths (0-100 Mbps in 10-unit steps)
+    in each generation and calculates the percentage of occurrences of 100 Mbps.
     """
     with open(csv_file_name, "r") as f:
         reader = csv.reader(f)
@@ -56,19 +56,19 @@ def plot_results(
     labels,
     colors,
     output_file,
-    xlabel="世代",
-    ylabel="最適経路の割合 [%]",
+    xlabel="Generation",
+    ylabel="Optimal Path Selection Ratio [%]",
 ):
     """
-    複数のログの結果を同じグラフ上に描画する関数。
+    Plot multiple log results on the same graph.
 
     Parameters:
-      - x_values: 世代番号のリスト
-      - y_values_list: 各ログの「100Mbpsの割合」（各世代ごとの値）のリスト
-      - labels: 各ログの凡例ラベル（文字列のリスト）
-      - colors: プロットに使用する色のリスト
-      - output_file: グラフの保存先ファイル名（SVG形式推奨）
-      - xlabel, ylabel: 軸ラベル
+      - x_values: List of generations
+      - y_values_list: List of datasets representing the ratio of 100 Mbps occurrences per generation
+      - labels: List of legend labels
+      - colors: List of colors for the plots
+      - output_file: File name for saving the graph (eps format recommended)
+      - xlabel, ylabel: Labels for axes
     """
     plt.figure(figsize=(10, 6))
     for y_values, label, color in zip(y_values_list, labels, colors):
@@ -81,29 +81,28 @@ def plot_results(
     plt.yticks(fontsize=15)
     plt.grid(True, linestyle="--", linewidth=0.5)
     plt.tight_layout()
-    plt.savefig(output_file, format="svg")
+    plt.savefig(output_file, format="eps")
     plt.show()
 
 
-# CSVファイルのパス設定（各条件のログファイル）
-# ノード数50と100の場合に対応するよう、ファイル名およびキーを変更
+# Set file paths for different conditions
 file_paths = {
-    "50_3": "./simulation_result/log_ant_50_3_.csv",
-    "50_6": "./simulation_result/log_ant_50_6_.csv",
-    "100_3": "./simulation_result/log_ant_100_3_.csv",
-    "100_6": "./simulation_result/log_ant_100_6_.csv",
+    "50_3": "./simulation_result/log_ant_50_3_random_optional_10-90-base.csv",
+    "50_6": "./simulation_result/log_ant_50_6_random_optional_10-90-base.csv",
+    "100_3": "./simulation_result/log_ant_100_3_random_optional_10-90-base.csv",
+    "100_6": "./simulation_result/log_ant_100_6_random_optional_10-90-base.csv",
 }
 
-# 各ログのデータを読み込む
+# Read data from files
 data_results = {}
 for key, path in file_paths.items():
     if os.path.exists(path):
         x_vals, ratios = process_csv_data(path)
         data_results[key] = (x_vals, ratios)
     else:
-        print(f"ファイルが存在しません: {path}")
+        print(f"File not found: {path}")
 
-# ノード数50の場合のグラフを作成
+# Generate plot for 50 nodes
 if "50_3" in data_results and "50_6" in data_results:
     x_vals = data_results["50_3"][0]  # 世代番号は全て同じと仮定
     # 各世代での100Mbpsの割合は、各 ratios のインデックス10
@@ -114,12 +113,12 @@ if "50_3" in data_results and "50_6" in data_results:
         y_values_list=[y_vals_50_3, y_vals_50_6],
         labels=["Nodes = 50, Edges per node = 3", "Nodes = 50, Edges per node = 6"],
         colors=["black", "dimgray"],
-        output_file="./simulation_result/log_ant_analysis_50.svg",
-        xlabel="世代",
-        ylabel="最適経路の割合 [%]",
+        output_file="./simulation_result/log_ant_analysis_50.eps",
+        xlabel="Generation",
+        ylabel="Optimal Path Selection Ratio [%]",
     )
 
-# ノード数100の場合のグラフを作成
+# Generate plot for 100 nodes
 if "100_3" in data_results and "100_6" in data_results:
     x_vals = data_results["100_3"][0]
     y_vals_100_3 = [gen_ratio[10] for gen_ratio in data_results["100_3"][1]]
@@ -129,7 +128,7 @@ if "100_3" in data_results and "100_6" in data_results:
         y_values_list=[y_vals_100_3, y_vals_100_6],
         labels=["Nodes = 100, Edges per node = 3", "Nodes = 100, Edges per node = 6"],
         colors=["black", "dimgray"],
-        output_file="./simulation_result/log_ant_analysis_100.svg",
-        xlabel="世代",
-        ylabel="最適経路の割合 [%]",
+        output_file="./simulation_result/log_ant_analysis_100.eps",
+        xlabel="Generation",
+        ylabel="Optimal Path Selection Ratio [%]",
     )
