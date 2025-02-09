@@ -404,7 +404,7 @@ def load_graph(file_name: str) -> nx.Graph:
     return graph
 
 
-def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
+def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 9) -> nx.Graph:
     """
     Barabási-Albertモデルでグラフを生成
     - 各エッジに帯域幅(weight)をランダムに設定
@@ -670,22 +670,22 @@ if __name__ == "__main__":
                 if START_NODE != GOAL_NODE:
                     break
 
-            # 最適経路を追加し、その経路の帯域をすべて100に設定
-            graph = add_optimal_path(
-                graph,
-                START_NODE,
-                GOAL_NODE,
-                min_pheromone=MIN_F,
-                num_intermediate_nodes=6,
-            )
+            # # 最適経路を追加し、その経路の帯域をすべて100に設定
+            # graph = add_optimal_path(
+            #     graph,
+            #     START_NODE,
+            #     GOAL_NODE,
+            #     min_pheromone=MIN_F,
+            #     num_intermediate_nodes=6,
+            # )
 
-            # # 存在するある1つの経路を最適経路とするため、その経路の帯域をすべて100に設定
-            # graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
-            # # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
-            # while graph == 0:
-            #     graph = ba_graph(num_nodes, num_edges)
-            #     graph = make_graph_bidirectional(graph)
-            #     graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
+            # 存在するある1つの経路を最適経路とするため、その経路の帯域をすべて100に設定
+            graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
+            # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
+            while graph == 0:
+                graph = ba_graph(num_nodes, num_edges)
+                graph = make_graph_bidirectional(graph)
+                graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
 
         else:
             graph = load_graph("ba_model_graph")
