@@ -2,5 +2,6 @@ result.json
 .mypy_cache
 __pycache__
 *.SVG
+*.eps
 *.txt
 .DS_Store
