@@ -79,7 +79,6 @@ def plot_results(
     plt.legend(fontsize=15, loc="lower right")
     plt.xticks(fontsize=15)
     plt.yticks(fontsize=15)
-    plt.grid(True, linestyle="--", linewidth=0.5)
     plt.tight_layout()
     plt.savefig(output_file, format="eps")
     plt.show()
@@ -91,6 +90,8 @@ file_paths = {
     "50_6": "./simulation_result/log_ant_50_6_random_optional_10-90-base.csv",
     "100_3": "./simulation_result/log_ant_100_3_random_optional_10-90-base.csv",
     "100_6": "./simulation_result/log_ant_100_6_random_optional_10-90-base.csv",
+    "150_3": "./simulation_result/log_ant_150_3_random_optional_10-90-base.csv",
+    "150_6": "./simulation_result/log_ant_150_6_random_optional_10-90-base.csv",
 }
 
 # Read data from files
@@ -129,6 +130,21 @@ if "100_3" in data_results and "100_6" in data_results:
         labels=["Nodes = 100, Edges per node = 3", "Nodes = 100, Edges per node = 6"],
         colors=["black", "dimgray"],
         output_file="./simulation_result/log_ant_analysis_100.eps",
+        xlabel="Generation",
+        ylabel="Optimal Path Selection Ratio [%]",
+    )
+
+# Generate plot for 150 nodes
+if "150_3" in data_results and "150_6" in data_results:
+    x_vals = data_results["150_3"][0]
+    y_vals_150_3 = [gen_ratio[10] for gen_ratio in data_results["150_3"][1]]
+    y_vals_150_6 = [gen_ratio[10] for gen_ratio in data_results["150_6"][1]]
+    plot_results(
+        x_values=x_vals,
+        y_values_list=[y_vals_150_3, y_vals_150_6],
+        labels=["Nodes = 150, Edges per node = 3", "Nodes = 150, Edges per node = 6"],
+        colors=["black", "dimgray"],
+        output_file="./simulation_result/log_ant_analysis_150.eps",
         xlabel="Generation",
         ylabel="Optimal Path Selection Ratio [%]",
     )

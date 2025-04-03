@@ -61,7 +61,6 @@ plt.scatter(
     previous_y_values,
     color="black",
     s=5,
-    label="ネットワーク内の最大帯域値既知",
 )
 
 # 完全分散型揮発式の結果を描画
