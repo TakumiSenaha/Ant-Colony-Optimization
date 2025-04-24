@@ -15,7 +15,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 10000  # ant，interestを放つ回数(世代)
+GENERATION = 1000  # ant，interestを放つ回数(世代)
 SIMULATIONS = 100
 
 
