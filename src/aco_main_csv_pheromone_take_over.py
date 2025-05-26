@@ -645,105 +645,38 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
     A.draw(filename, format="pdf")
 
 
-# Main処理
+SWITCH_INTERVAL = 300  # スタートノード切り替え間隔
+START_NODE_LIST = [10, 20, 30, 40]  # フェーズ毎に切り替わる要求ノード
+GOAL_NODE = 50
+# ------------------ メイン処理 ------------------
 if __name__ == "__main__":
-    for sim in range(SIMULATIONS):
-        num_nodes = 100  # ノードの数
-        num_edges = 3  # 新しいノードが既存ノードに接続する数
+    graph = ba_graph(num_nodes=100, num_edges=3, lb=1, ub=10)
 
-        # シミュレーションで使用する開始ノードと終了ノード
-        START_NODE: int
-        GOAL_NODE: int
+    # 各 start → goal に100Mbpsの最適経路を事前に埋め込む（失敗したら再試行）
+    for s in START_NODE_LIST:
+        while True:
+            result = set_optimal_path(graph, s, GOAL_NODE)
+            if result != 0:
+                graph = result
+                break
 
-        use_existing_graph = False  # 既存のグラフを使用するかどうか
+    ant_log: list[int] = []
 
-        if not use_existing_graph:
-            # BAモデルでグラフを生成
-            graph: nx.Graph = ba_graph(num_nodes, num_edges)
-            # グラフを双方向に変換
-            graph = make_graph_bidirectional(graph)
+    for generation in range(GENERATION):
+        phase = generation // SWITCH_INTERVAL
+        current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
 
-            # シミュレーションで使用する開始ノードと終了ノードを決定
-            while True:
-                START_NODE = random.randint(0, num_nodes - 1)
-                GOAL_NODE = random.randint(0, num_nodes - 1)
-                if START_NODE != GOAL_NODE:
-                    break
+        ants = [
+            Ant(current_start, GOAL_NODE, [current_start], []) for _ in range(ANT_NUM)
+        ]
 
-            # # 最適経路を追加し、その経路の帯域をすべて100に設定
-            # graph = add_optimal_path(
-            #     graph,
-            #     START_NODE,
-            #     GOAL_NODE,
-            #     min_pheromone=MIN_F,
-            #     num_intermediate_nodes=6,
-            # )
+        for _ in range(TTL):
+            ant_next_node(ants, graph, ant_log)
 
-            # 存在するある1つの経路を最適経路とするため、その経路の帯域をすべて100に設定
-            graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
-            # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
-            while graph == 0:
-                graph = ba_graph(num_nodes, num_edges)
-                graph = make_graph_bidirectional(graph)
-                graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
+        volatilize_by_width(graph)
 
-        else:
-            graph = load_graph("ba_model_graph")
-            # グラフを双方向に変換
-            graph = make_graph_bidirectional(graph)
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    with open(f"log_ant_{now}.csv", "w") as f:
+        csv.writer(f).writerow(ant_log)
 
-            START_NODE = 30
-            GOAL_NODE = 32
-
-        # next_start_node = random.randint(0, num_nodes - 1)
-
-        # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
-        set_pheromone_min_max_by_degree_and_width(graph)
-
-        # AntとInterestオブジェクト格納リスト
-        ant_list: list[Ant] = []
-        interest_list: list[Interest] = []
-
-        # ログのリスト
-        ant_log: list[int] = []
-        interest_log: list[int] = []
-
-        for generation in range(GENERATION):
-            print(f"Simulation {sim+1}, Generation {generation+1}")
-
-            # Antを配置
-            ant_list.extend(
-                [Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)]
-            )
-
-            # Antによる探索
-            for _ in range(TTL):
-                ant_next_node(ant_list, graph, ant_log)
-
-            # フェロモンの揮発
-            volatilize_by_width(graph)
-
-            # Interestによる評価
-            # Interestを配置
-            interest_list.append(Interest(START_NODE, GOAL_NODE, [START_NODE], W))
-
-            # Interestの移動
-            for _ in range(TTL):
-                interest_next_node(interest_list, graph, interest_log)
-
-        # save_graph_without_pheromone(graph, "ba_model_graph")
-        save_graph_with_pheromone(graph, "ba_model_graph_with_pheromone")
-
-        # 各シミュレーションのログをCSVに保存
-        with open("./simulation_result/log_ant.csv", "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(ant_log)
-
-        with open("./simulation_result/log_interest.csv", "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(interest_log)
-
-    # 最終的なグラフの視覚化
-    # visualize_graph(graph, "network_graph.pdf")
-    print("Simulations completed.")
-    print(START_NODE, GOAL_NODE)
+    print("✅ フェロモン引き継ぎ探索が完了しました。")
