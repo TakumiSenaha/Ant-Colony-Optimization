@@ -466,7 +466,7 @@ def set_optimal_path(
     start: int,
     goal: int,
     min_pheromone: int = 100,
-    max_hops: int = 2,
+    max_hops: int = 5,
     max_attempts: int = 100,
     max_weight: int = 100,
 ) -> nx.Graph:
@@ -645,38 +645,40 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
     A.draw(filename, format="pdf")
 
 
-SWITCH_INTERVAL = 300  # スタートノード切り替え間隔
-START_NODE_LIST = [10, 20, 30, 40]  # フェーズ毎に切り替わる要求ノード
+SWITCH_INTERVAL = 100  # スタートノード切り替え間隔
+START_NODE_LIST = [10, 20, 30, 40, 60, 80]  # フェーズ毎に切り替わる要求ノード
 GOAL_NODE = 50
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
-    graph = ba_graph(num_nodes=100, num_edges=3, lb=1, ub=10)
+    for sim in range(SIMULATIONS):
+        graph = ba_graph(num_nodes=100, num_edges=3, lb=1, ub=10)
 
-    # 各 start → goal に100Mbpsの最適経路を事前に埋め込む（失敗したら再試行）
-    for s in START_NODE_LIST:
-        while True:
-            result = set_optimal_path(graph, s, GOAL_NODE)
-            if result != 0:
-                graph = result
-                break
+        # 各 start → goal に100Mbpsの最適経路を事前に埋め込む（失敗したら再試行）
+        for s in START_NODE_LIST:
+            while True:
+                result = set_optimal_path(graph, s, GOAL_NODE)
+                if result != 0:
+                    graph = result
+                    break
 
-    ant_log: list[int] = []
+        ant_log: list[int] = []
 
-    for generation in range(GENERATION):
-        phase = generation // SWITCH_INTERVAL
-        current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
+        for generation in range(GENERATION):
+            phase = generation // SWITCH_INTERVAL
+            current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
 
-        ants = [
-            Ant(current_start, GOAL_NODE, [current_start], []) for _ in range(ANT_NUM)
-        ]
+            ants = [
+                Ant(current_start, GOAL_NODE, [current_start], [])
+                for _ in range(ANT_NUM)
+            ]
 
-        for _ in range(TTL):
-            ant_next_node(ants, graph, ant_log)
+            for _ in range(TTL):
+                ant_next_node(ants, graph, ant_log)
 
-        volatilize_by_width(graph)
+            volatilize_by_width(graph)
 
-    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    with open(f"log_ant_{now}.csv", "w") as f:
-        csv.writer(f).writerow(ant_log)
+        with open("./simulation_result/log_ant.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(ant_log)
 
-    print("✅ フェロモン引き継ぎ探索が完了しました。")
+        print(f"✅ シミュレーション {sim+1} 回目完了")
