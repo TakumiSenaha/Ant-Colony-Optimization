@@ -654,14 +654,6 @@ if __name__ == "__main__":
     for sim in range(SIMULATIONS):
         graph = ba_graph(num_nodes=100, num_edges=3, lb=1, ub=10)
 
-        # 各 start → goal に100Mbpsの最適経路を事前に埋め込む（失敗したら再試行）
-        for s in START_NODE_LIST:
-            while True:
-                result = set_optimal_path(graph, s, GOAL_NODE)
-                if result != 0:
-                    graph = result
-                    break
-
         ant_log: list[int] = []
 
         # スタートノードごとに最適経路・ボトルネック値をキャッシュ
@@ -686,6 +678,9 @@ if __name__ == "__main__":
                                 for i in range(len(optimal_path) - 1)
                             )
                             optimal_bottleneck_dict[current_start] = optimal_bottleneck
+                            print(
+                                f"最適経路: {optimal_path} ボトルネック帯域幅: {optimal_bottleneck}"
+                            )
                             break  # 成功したら抜ける
                         except Exception:
                             retry_count += 1
