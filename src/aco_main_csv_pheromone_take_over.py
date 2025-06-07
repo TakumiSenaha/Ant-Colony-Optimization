@@ -645,9 +645,12 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
     A.draw(filename, format="pdf")
 
 
-SWITCH_INTERVAL = 100  # スタートノード切り替え間隔
-START_NODE_LIST = [10, 20, 30, 40, 60, 80]  # フェーズ毎に切り替わる要求ノード
-GOAL_NODE = 50
+SWITCH_INTERVAL = 200  # スタートノード切り替え間隔
+START_NODE_LIST = random.sample(range(100), 6)
+GOAL_NODE = random.choice(
+    [n for n in range(100) if n not in START_NODE_LIST]
+)  # ランダムに選ばれる要求ノード
+
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
     for sim in range(SIMULATIONS):
