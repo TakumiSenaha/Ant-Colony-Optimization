@@ -7,6 +7,8 @@ from datetime import datetime
 import networkx as nx
 from networkx.drawing.nx_agraph import to_agraph
 
+from modified_dijkstra import max_load_path
+
 V = 0.99  # フェロモン揮発量
 MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
@@ -228,7 +230,9 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         # )
 
 
-def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> None:
+def ant_next_node(
+    ant_list: list[Ant], graph: nx.Graph, ant_log: list[int], optimal_bottleneck: int
+) -> None:
     """
     Antの次の移動先を決定し、移動を実行
     """
@@ -270,16 +274,10 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
             # 目的ノードに到達した場合、フェロモンを更新してリストから削除
             if ant.current == ant.destination:
                 update_pheromone(ant, graph)
-                ant_log.append(min(ant.width))
+                # 2値記録: 最適ボトルネック値と一致なら1, そうでなければ0
+                ant_log.append(1 if min(ant.width) == optimal_bottleneck else 0)
                 ant_list.remove(ant)
                 print(f"Ant Goal! → {ant.route} : {min(ant.width)}")
-
-                bottleneck_bandwidth = min(ant.width)
-                if bottleneck_bandwidth == 100 or bottleneck_bandwidth == 90:
-                    print(
-                        f"ボトルネック帯域が{bottleneck_bandwidth}の経路: {ant.route}"
-                    )
-
             # TTL（生存時間）を超えた場合もリストから削除
             elif len(ant.route) == TTL:
                 ant_log.append(0)
@@ -666,9 +664,53 @@ if __name__ == "__main__":
 
         ant_log: list[int] = []
 
+        # スタートノードごとに最適経路・ボトルネック値をキャッシュ
+        optimal_bottleneck_dict = {}
+
         for generation in range(GENERATION):
             phase = generation // SWITCH_INTERVAL
             current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
+
+            # スタートノード切り替え時のみ最適経路を再計算
+            if (generation % SWITCH_INTERVAL == 0) or (generation == 0):
+                if current_start != GOAL_NODE:
+                    retry_count = 0
+                    used_starts = set()
+                    while True:
+                        try:
+                            optimal_path = max_load_path(
+                                graph, current_start, GOAL_NODE
+                            )
+                            optimal_bottleneck = min(
+                                graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
+                                for i in range(len(optimal_path) - 1)
+                            )
+                            optimal_bottleneck_dict[current_start] = optimal_bottleneck
+                            break  # 成功したら抜ける
+                        except Exception:
+                            retry_count += 1
+                            used_starts.add(current_start)
+                            print(
+                                f"⚠️ {current_start} から {GOAL_NODE} へのパスが存在しません。スタートノードを再設定します。"
+                            )
+                            # まだ選ばれていないノードからランダム選択
+                            candidates = [
+                                n
+                                for n in range(100)
+                                if n not in used_starts and n != GOAL_NODE
+                            ]
+                            if not candidates or retry_count > 10:
+                                # 10回以上失敗したら諦めてエラーを投げる
+                                raise RuntimeError(
+                                    "Failed to find a valid path from"
+                                    f"{current_start} to {GOAL_NODE} "
+                                    f"after {retry_count} attempts."
+                                )
+                            current_start = random.choice(candidates)
+                else:
+                    optimal_bottleneck_dict[current_start] = 0
+
+            optimal_bottleneck = optimal_bottleneck_dict.get(current_start, 0)
 
             ants = [
                 Ant(current_start, GOAL_NODE, [current_start], [])
@@ -676,7 +718,7 @@ if __name__ == "__main__":
             ]
 
             for _ in range(TTL):
-                ant_next_node(ants, graph, ant_log)
+                ant_next_node(ants, graph, ant_log, optimal_bottleneck)
 
             volatilize_by_width(graph)
 
