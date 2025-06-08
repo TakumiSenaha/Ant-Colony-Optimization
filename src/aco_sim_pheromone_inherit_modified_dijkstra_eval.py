@@ -69,21 +69,30 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 # 0: 既存の揮発式（固定値を基準に帯域幅で揮発量を調整）
 # 1: 帯域幅の最小値・最大値を基準に揮発量を動的に調整
 # 2: 帯域幅の平均・分散を基準に揮発量を計算
-VOLATILIZATION_MODE = 1
+VOLATILIZATION_MODE = 3
 
 
 def volatilize_by_width(graph: nx.Graph) -> None:
     """
     各エッジのフェロモン値を双方向で揮発させる
-    - VOLATILIZATION_MODE が 0 の場合: 既存の揮発式を使用
-    - VOLATILIZATION_MODE が 1 の場合: 帯域幅の最小値・最大値を基準に揮発量を調整
-    - VOLATILIZATION_MODE が 2 の場合: 平均・分散を基準に揮発量を計算
+    - VOLATILIZATION_MODE が 0 の場合: 固定の揮発率を適用
+    - VOLATILIZATION_MODE が 1 の場合: エッジのlocal_min/max帯域幅を基準に揮発量を調整
+    - VOLATILIZATION_MODE が 2 の場合: エッジの帯域幅の平均/分散を基準に揮発量を計算
+    - VOLATILIZATION_MODE が 3 の場合: ノードのbest_known_bottleneck(BKB)に基づきペナルティを適用
     """
     for u, v in graph.edges():
         # u → v の揮発計算
         _apply_volatilization(graph, u, v)
         # v → u の揮発計算
         _apply_volatilization(graph, v, u)
+
+    bkb_evaporation_rate = 0.999  # BKBを維持する割合
+    for node in graph.nodes():
+        if "best_known_bottleneck" in graph.nodes[node]:
+            graph.nodes[node]["best_known_bottleneck"] *= bkb_evaporation_rate
+
+
+PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ（残存率をさらに下げる）
 
 
 def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
@@ -135,8 +144,20 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
         gamma = 1.0  # 減衰率の調整パラメータ
         rate = math.exp(-gamma * (avg_bandwidth - weight_uv) / std_dev)
 
+    elif VOLATILIZATION_MODE == 3:
+        # --- ノードのBKBに基づきペナルティを適用 ---
+        # 基本の残存率を設定
+        rate = V
+
+        # 行き先ノードvが知っている最良のボトルネック帯域(BKB)を取得
+        bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
+
+        # このエッジの帯域幅が、行き先ノードのBKBより低い場合、ペナルティを課す
+        if weight_uv < bkb_v:
+            rate *= PENALTY_FACTOR  # 残存率を下げることで、揮発を促進する
+
     else:
-        raise ValueError("Invalid VOLATILIZATION_MODE. Choose 0, 1, or 2.")
+        raise ValueError("Invalid VOLATILIZATION_MODE. Choose 0, 1, 2 or 3.")
 
     # フェロモン値を計算して更新
     new_pheromone = max(
@@ -221,13 +242,15 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         # pheromone_increase = min(ant.width) * 10
 
         graph[u][v]["pheromone"] = min(
-            graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
+            graph[u][v]["pheromone"] + pheromone_increase,
+            graph[u][v].get("max_pheromone", MAX_F),
         )
 
-        # print(f"Update Pheromone: {u} → {v} : {graph[u][v]['pheromone']}")
-        # print(
-        #     f"Update Bandwidth: {u} → {v} : {graph[u][v]['local_min_bandwidth']} : {graph[u][v]['local_max_bandwidth']}"
-        # )
+    # --- BKBの更新（フェロモン付加の後に行う）---
+    # 経路上の各ノードのBKBを更新
+    for node in ant.route:
+        current_bkb = graph.nodes[node].get("best_known_bottleneck", 0)
+        graph.nodes[node]["best_known_bottleneck"] = max(current_bkb, bottleneck_bn)
 
 
 def ant_next_node(
@@ -393,6 +416,12 @@ def interest_next_node(
 def load_graph(file_name: str) -> nx.Graph:
     """保存されたエッジリスト形式のグラフを読み込む"""
     graph = nx.read_edgelist(file_name, data=[("weight", float)], nodetype=int)
+
+    # ===== 全てのノードに best_known_bottleneck 属性を初期値 0 で追加 =====
+    for node in graph.nodes():
+        graph.nodes[node]["best_known_bottleneck"] = 0
+    # =======================================================================
+
     # 読み込んだグラフのエッジに初期フェロモン値を追加
     for u, v in graph.edges():
         graph[u][v]["pheromone"] = MIN_F
@@ -402,19 +431,26 @@ def load_graph(file_name: str) -> nx.Graph:
     return graph
 
 
-def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 9) -> nx.Graph:
+def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> nx.Graph:
     """
     Barabási-Albertモデルでグラフを生成
-    - 各エッジに帯域幅(weight)をランダムに設定
-    - 各エッジに local_min_bandwidth と local_max_bandwidth を初期化
+    - 各ノードに best_known_bottleneck を初期化
+    - 各エッジに帯域幅(weight)等を初期化
     """
     graph = nx.barabasi_albert_graph(num_nodes, num_edges)
+
+    # ===== 全てのノードに best_known_bottleneck 属性を初期値 0 で追加 =====
+    for node in graph.nodes():
+        graph.nodes[node]["best_known_bottleneck"] = 0
+    # =======================================================================
+
     for u, v in graph.edges():
         # リンクの帯域幅(weight)をランダムに設定
         weight = random.randint(lb, ub) * 10
         graph[u][v]["weight"] = weight
 
-        # 各エッジが知り得ている最小・最大帯域幅を初期化
+        # NOTE: local_min/max_bandwidth は新しいアプローチでは使わなくなりますが、
+        #       段階的な移行のため一旦残します。
         graph[u][v]["local_min_bandwidth"] = weight
         graph[u][v]["local_max_bandwidth"] = weight
 
