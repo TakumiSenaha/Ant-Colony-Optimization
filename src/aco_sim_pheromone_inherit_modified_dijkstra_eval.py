@@ -324,6 +324,75 @@ def ant_next_node_aware_generation(
                 print(f"Ant TTL! → {ant.route}")
 
 
+# ===== シンプルなε-Greedy法のためのパラメータ =====
+EPSILON_START = 0.3  # ランダム探索を開始する確率の初期値
+EPSILON_END = 0.01  # ランダム探索を最終的に行う確率の下限値
+# 全世代のうち、εを減衰させる期間の割合
+DECAY_PERIOD_RATIO = 0.8
+
+
+def ant_next_node_simple_greedy(
+    ant_list: list[Ant],
+    graph: nx.Graph,
+    ant_log: list[int],
+    optimal_bottleneck: int,
+    generation: int,
+) -> None:
+    """
+    固定パラメータ(α, β)と、線形減衰するε-Greedy法を使い、Antの次の移動先を決定する。
+    """
+    # ===== εの線形減衰計算 =====
+    # 序盤は探索を重視し、徐々に活用を重視する
+    decay_generations = GENERATION * DECAY_PERIOD_RATIO
+    progress = min(1.0, generation / decay_generations)
+    epsilon = EPSILON_START - (EPSILON_START - EPSILON_END) * progress
+    # ============================
+
+    for ant in reversed(ant_list):
+        neighbors = list(graph.neighbors(ant.current))
+        candidates = [n for n in neighbors if n not in ant.route]
+
+        if not candidates:
+            ant_list.remove(ant)
+            ant_log.append(0)
+            # print(f"Ant Can't Find Route! → {ant.route}")
+        else:
+            # ===== ε-Greedy選択 =====
+            if random.random() < epsilon:
+                # 【探索】εの確率で、重みを無視してランダムに次ノードを選択
+                next_node = random.choice(candidates)
+            else:
+                # 【活用】1-εの確率で、フェロモンと帯域幅に基づいて次ノードを選択
+                pheromones = [graph[ant.current][n]["pheromone"] for n in candidates]
+                widths = [graph[ant.current][n]["weight"] for n in candidates]
+
+                # αとβは固定値を使用
+                weight_pheromone = [p for p in pheromones]
+                weight_width = [w**BETA for w in widths]
+                weights = [p * w for p, w in zip(weight_pheromone, weight_width)]
+
+                # 重みが全て0の場合のフォールバック
+                if sum(weights) == 0:
+                    next_node = random.choice(candidates)
+                else:
+                    next_node = random.choices(candidates, weights=weights, k=1)[0]
+            # =======================
+
+            # --- antの状態更新 (変更なし) ---
+            next_edge_bandwidth = graph[ant.current][next_node]["weight"]
+            ant.route.append(next_node)
+            ant.width.append(next_edge_bandwidth)
+            ant.current = next_node
+
+            if ant.current == ant.destination:
+                update_pheromone(ant, graph)
+                ant_log.append(1 if min(ant.width) == optimal_bottleneck else 0)
+                ant_list.remove(ant)
+            elif len(ant.route) >= TTL:
+                ant_log.append(0)
+                ant_list.remove(ant)
+
+
 def interest_next_node(
     interest_list: list[Interest], graph: nx.Graph, interest_log: list[int]
 ) -> None:
