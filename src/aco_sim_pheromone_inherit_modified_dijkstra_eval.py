@@ -9,15 +9,15 @@ from networkx.drawing.nx_agraph import to_agraph
 
 from modified_dijkstra import max_load_path
 
-V = 0.99  # フェロモン揮発量
+V = 0.98  # フェロモン揮発量
 MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
 TTL = 100  # AntのTime to Live
 W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
-ANT_NUM = 1  # 一回で放つAntの数
-GENERATION = 1000  # ant，interestを放つ回数(世代)
+ANT_NUM = 10  # 一回で放つAntの数
+GENERATION = 500  # ant，interestを放つ回数(世代)
 SIMULATIONS = 100
 
 
@@ -111,7 +111,7 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
     if VOLATILIZATION_MODE == 0:
         # --- 既存の揮発式 ---
         # 最大帯域幅100Mbpsを基準に固定値で揮発率を計算
-        rate = V * (0.8 ** ((100 - weight_uv) / 10))
+        rate = V
 
     # 0.99に設定する方が，最適解既知でないときに如実に良くなる．
     elif VOLATILIZATION_MODE == 1:
