@@ -726,71 +726,51 @@ GOAL_NODE = random.choice(
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
     for sim in range(SIMULATIONS):
+        # グラフを生成
         graph = ba_graph(num_nodes=100, num_edges=3, lb=1, ub=10)
+
+        # ===== 変更点: 各シミュレーションごとにスタート・ゴールをランダム選択 =====
+        start_node = random.randrange(100)
+        goal_node = random.randrange(100)
+        while start_node == goal_node:
+            goal_node = random.randrange(100)
+        # =================================================================
 
         ant_log: list[int] = []
 
-        # スタートノードごとに最適経路・ボトルネック値をキャッシュ
-        optimal_bottleneck_dict = {}
+        # --- 最適経路を事前に一度だけ計算 ---
+        try:
+            optimal_path = max_load_path(graph, start_node, goal_node)
+            optimal_bottleneck = min(
+                graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
+                for i in range(len(optimal_path) - 1)
+            )
+            print(f"--- シミュレーション {sim+1} 開始 ---")
+            print(f"スタート={start_node}, ゴール={goal_node}")  # 変数名を変更
+            print(f"最適経路: {optimal_path}, ボトルネック帯域幅: {optimal_bottleneck}")
+        except nx.NetworkXNoPath:
+            print(
+                f"⚠️ {start_node} から {goal_node} へのパスが存在しません。このシミュレーションをスキップします。"
+            )
+            continue  # 次のシミュレーションへ
 
+        # --- シミュレーション世代のループ ---
         for generation in range(GENERATION):
-            phase = generation // SWITCH_INTERVAL
-            current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
-
-            # スタートノード切り替え時のみ最適経路を再計算
-            if (generation % SWITCH_INTERVAL == 0) or (generation == 0):
-                if current_start != GOAL_NODE:
-                    retry_count = 0
-                    used_starts = set()
-                    while True:
-                        try:
-                            optimal_path = max_load_path(
-                                graph, current_start, GOAL_NODE
-                            )
-                            optimal_bottleneck = min(
-                                graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
-                                for i in range(len(optimal_path) - 1)
-                            )
-                            optimal_bottleneck_dict[current_start] = optimal_bottleneck
-                            print(
-                                f"最適経路: {optimal_path} ボトルネック帯域幅: {optimal_bottleneck}"
-                            )
-                            break  # 成功したら抜ける
-                        except Exception:
-                            retry_count += 1
-                            used_starts.add(current_start)
-                            print(
-                                f"⚠️ {current_start} から {GOAL_NODE} へのパスが存在しません。スタートノードを再設定します。"
-                            )
-                            # まだ選ばれていないノードからランダム選択
-                            candidates = [
-                                n
-                                for n in range(100)
-                                if n not in used_starts and n != GOAL_NODE
-                            ]
-                            if not candidates or retry_count > 10:
-                                # 10回以上失敗したら諦めてエラーを投げる
-                                raise RuntimeError(
-                                    "Failed to find a valid path from"
-                                    f"{current_start} to {GOAL_NODE} "
-                                    f"after {retry_count} attempts."
-                                )
-                            current_start = random.choice(candidates)
-                else:
-                    optimal_bottleneck_dict[current_start] = 0
-
-            optimal_bottleneck = optimal_bottleneck_dict.get(current_start, 0)
-
+            # 蟻の生成 (スタートノードはランダム化されたものを使用)
             ants = [
-                Ant(current_start, GOAL_NODE, [current_start], [])
-                for _ in range(ANT_NUM)
+                Ant(start_node, goal_node, [start_node], []) for _ in range(ANT_NUM)
             ]
 
-            for _ in range(TTL):
-                ant_next_node(ants, graph, ant_log, optimal_bottleneck)
+            # 蟻の移動 (TTLのステップ)
+            while ants:
+                ant_next_node_simple_greedy(
+                    ants, graph, ant_log, optimal_bottleneck, generation
+                )
 
+            # フェロモンの揮発
             volatilize_by_width(graph)
 
+        # --- 結果の保存 ---
         with open("./simulation_result/log_ant.csv", "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(ant_log)
