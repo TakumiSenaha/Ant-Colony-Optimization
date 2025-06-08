@@ -17,7 +17,7 @@ W = 1000  # 帯域幅初期値
 BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
 
 ANT_NUM = 10  # 一回で放つAntの数
-GENERATION = 500  # ant，interestを放つ回数(世代)
+GENERATION = 1000  # ant，interestを放つ回数(世代)
 SIMULATIONS = 100
 
 
@@ -717,54 +717,105 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
     A.draw(filename, format="pdf")
 
 
-SWITCH_INTERVAL = 200  # スタートノード切り替え間隔
-START_NODE_LIST = random.sample(range(100), 6)
-GOAL_NODE = random.choice(
-    [n for n in range(100) if n not in START_NODE_LIST]
-)  # ランダムに選ばれる要求ノード
-
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
-    for sim in range(SIMULATIONS):
-        # グラフを生成
-        graph = ba_graph(num_nodes=100, num_edges=3, lb=1, ub=10)
+    # ===== スタートノード切り替えのための設定 =====
+    SWITCH_INTERVAL = 200  # スタートノード切り替え間隔
+    NUM_NODES = 100
+    START_NODE_LIST = random.sample(range(NUM_NODES), 6)
+    GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n not in START_NODE_LIST])
+    # ==========================================
 
-        # ===== 変更点: 各シミュレーションごとにスタート・ゴールをランダム選択 =====
-        start_node = random.randrange(100)
-        goal_node = random.randrange(100)
-        while start_node == goal_node:
-            goal_node = random.randrange(100)
-        # =================================================================
+    for sim in range(SIMULATIONS):
+        # グラフはシミュレーションごとに一度だけ生成
+        graph = ba_graph(num_nodes=NUM_NODES, num_edges=3, lb=1, ub=10)
 
         ant_log: list[int] = []
 
-        # --- 最適経路を事前に一度だけ計算 ---
-        try:
-            optimal_path = max_load_path(graph, start_node, goal_node)
-            optimal_bottleneck = min(
-                graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
-                for i in range(len(optimal_path) - 1)
-            )
-            print(f"--- シミュレーション {sim+1} 開始 ---")
-            print(f"スタート={start_node}, ゴール={goal_node}")  # 変数名を変更
-            print(f"最適経路: {optimal_path}, ボトルネック帯域幅: {optimal_bottleneck}")
-        except nx.NetworkXNoPath:
-            print(
-                f"⚠️ {start_node} から {goal_node} へのパスが存在しません。このシミュレーションをスキップします。"
-            )
-            continue  # 次のシミュレーションへ
+        # スタートノードごとに最適経路・ボトルネック値をキャッシュ
+        optimal_bottleneck_dict = {}
 
-        # --- シミュレーション世代のループ ---
         for generation in range(GENERATION):
-            # 蟻の生成 (スタートノードはランダム化されたものを使用)
+            # ===== スタートノードの決定 =====
+            phase = generation // SWITCH_INTERVAL
+            current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
+
+            # ===== スタートノード切り替え時の初期化処理 =====
+            if generation % SWITCH_INTERVAL == 0:
+                print(
+                    f"\n--- 世代 {generation}: スタートノードを {current_start} に変更 ---"
+                )
+
+                # BKB（Best Known Bottleneck）を全ノードでリセット
+                print("全ノードのBKBをリセットします。")
+                for node in graph.nodes():
+                    graph.nodes[node]["best_known_bottleneck"] = 0
+
+                # 新しいスタート/ゴールペアに対する最適解を計算（リトライ処理付き）
+                # このstart_nodeは、リトライの結果、変更される可能性がある
+                start_node_for_calc = current_start
+                retry_count = 0
+                used_starts = {current_start}  # 既に使用したスタートノードを記録
+
+                while True:
+                    try:
+                        optimal_path = max_load_path(
+                            graph, start_node_for_calc, GOAL_NODE
+                        )
+                        optimal_bottleneck = min(
+                            graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
+                            for i in range(len(optimal_path) - 1)
+                        )
+                        optimal_bottleneck_dict[current_start] = optimal_bottleneck
+                        print(
+                            f"最適経路: {optimal_path}, ボトルネック帯域幅: {optimal_bottleneck}"
+                        )
+                        break  # 成功したらループを抜ける
+
+                    except nx.NetworkXNoPath:
+                        retry_count += 1
+                        print(
+                            f"⚠️ {start_node_for_calc} から {GOAL_NODE} へのパスが存在しません。スタートノードを再設定します。"
+                        )
+
+                        # まだ選ばれていないノードからランダムに候補を選択
+                        candidates = [
+                            n
+                            for n in range(NUM_NODES)
+                            if n not in used_starts and n != GOAL_NODE
+                        ]
+
+                        if not candidates or retry_count > 10:
+                            print(
+                                "有効なスタートノードが見つかりませんでした。このフェーズをスキップします。"
+                            )
+                            optimal_bottleneck_dict[current_start] = 0  # 失敗を記録
+                            break  # ループを抜ける
+
+                        start_node_for_calc = random.choice(candidates)
+                        used_starts.add(start_node_for_calc)
+                        # 重要：元のリストも更新して、今後の世代で正しいノードを参照できるようにする
+                        START_NODE_LIST[phase % len(START_NODE_LIST)] = (
+                            start_node_for_calc
+                        )
+                        current_start = start_node_for_calc
+
+            # 現在の世代で使用するスタートノードと最適解を取得
+            optimal_bottleneck = optimal_bottleneck_dict.get(current_start, 0)
+            if optimal_bottleneck == 0:
+                continue  # このスタートノードからは到達不能なので探索をスキップ
+
+            # ===== アリの生成と探索 =====
             ants = [
-                Ant(start_node, goal_node, [start_node], []) for _ in range(ANT_NUM)
+                Ant(current_start, GOAL_NODE, [current_start], [])
+                for _ in range(ANT_NUM)
             ]
 
-            # 蟻の移動 (TTLのステップ)
-            while ants:
+            # ant_next_node_simple_greedy を使用する想定
+            temp_ant_list = list(ants)
+            while temp_ant_list:
                 ant_next_node_simple_greedy(
-                    ants, graph, ant_log, optimal_bottleneck, generation
+                    temp_ant_list, graph, ant_log, optimal_bottleneck, generation
                 )
 
             # フェロモンの揮発
