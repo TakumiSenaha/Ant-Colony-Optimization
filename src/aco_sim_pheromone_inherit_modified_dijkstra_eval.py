@@ -174,73 +174,42 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
     # print(f"  新しいフェロモン値: {current_pheromone - new_pheromone}\n")
 
 
-def calculate_pheromone_increase(
-    bottleneck_bandwidth: int,
-    local_min_bandwidth: int,
-    local_max_bandwidth: int,
-    fixed_min_value: int = 10,
-) -> float:
+def calculate_pheromone_increase(bottleneck_bandwidth: int) -> float:
     """
-    フェロモン付加量を計算する
-    - local_min_bandwidth と local_max_bandwidth に応じて調整
+    フェロモン付加量を計算する。
     """
-    if bottleneck_bandwidth == local_max_bandwidth == local_min_bandwidth:
-        pheromone_increase = bottleneck_bandwidth
+    # ボトルネック帯域が大きいほど、指数的に報酬を増やす
+    # ただし、過大にならないよう2乗程度に抑える
+    return float(bottleneck_bandwidth * 10)
 
-    elif bottleneck_bandwidth >= local_max_bandwidth:
-        pheromone_increase = bottleneck_bandwidth**3
-        # if bottleneck_bandwidth != 100:
-        #     # エラーを吐く
-        #     print(bottleneck_bandwidth, local_min_bandwidth, local_max_bandwidth)
-        #     raise RuntimeError(
-        #         f"Error: bottleneck_bandwidth ({bottleneck_bandwidth}) != 100"
-        #     )
-    elif local_min_bandwidth < local_max_bandwidth:
-        # local_min_bandwidth を引く
-        pheromone_increase = (bottleneck_bandwidth - local_min_bandwidth) * 10
-        # denominator = max(
-        #     1, local_max_bandwidth - local_min_bandwidth
-        # )  # 分母が0になるのを防ぐ
-        # normalized_factor = (bottleneck_bandwidth - local_min_bandwidth) / denominator
-        # pheromone_increase = int(normalized_factor * 100)
-    else:
-        pheromone_increase = bottleneck_bandwidth
 
-    return max(0, pheromone_increase)  # 負の値を防ぐために max(0) を適用
+# ===== 新しいパラメータ（功績ボーナス）=====
+ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合のフェロモン増加ボーナス係数
 
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """
-    Antがゴールに到達したとき、通過した経路のフェロモン値と帯域幅情報を更新する
-    - フェロモン値はボトルネック帯域幅 (min(ant.width)) に基づき加算
-    - エッジごとの既知の最小・最大帯域幅 (max(ant.width), local_max_bandwidth) を更新
+    Antがゴールに到達したとき、経路上のフェロモンとノードのBKBを更新する。
+    BKBを更新した経路には功績ボーナスを与える。
     """
+    bottleneck_bn = min(ant.width) if ant.width else 0
+    if bottleneck_bn == 0:
+        return
+
+    # --- 経路上の各エッジにフェロモンを付加 ---
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
-        # pheromone_increase = min(ant.width) ** 2
-        # pheromone_increase = math.exp(min(ant.width) / 10)
-        # u→v のフェロモンを更新（通った方向のみ）
 
-        # エッジが知り得た最小帯域幅を更新（ローカル情報が小さければ更新）
-        graph[u][v]["local_min_bandwidth"] = min(
-            graph[u][v]["local_min_bandwidth"],
-            min(ant.width),
-        )
+        # ステップ1：基本のフェロモン増加量を計算
+        pheromone_increase = calculate_pheromone_increase(bottleneck_bn)
 
-        # エッジが知り得た最大帯域幅を更新（ローカル情報が大きければ更新）
-        graph[u][v]["local_max_bandwidth"] = max(
-            graph[u][v]["local_max_bandwidth"], max(ant.width)
-        )
+        # ステップ2：功績ボーナスの判定
+        # この経路によって、行き先ノードvのBKBが更新されるか？
+        current_bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
+        if bottleneck_bn > current_bkb_v:
+            pheromone_increase *= ACHIEVEMENT_BONUS
 
-        pheromone_increase = calculate_pheromone_increase(
-            bottleneck_bandwidth=min(ant.width),
-            local_min_bandwidth=graph[u][v]["local_min_bandwidth"],
-            local_max_bandwidth=graph[u][v]["local_max_bandwidth"],
-        )
-
-        # pheromone_increase = math.exp(min(ant.width) / 10)
-        # pheromone_increase = min(ant.width) * 10
-
+        # フェロモンを更新
         graph[u][v]["pheromone"] = min(
             graph[u][v]["pheromone"] + pheromone_increase,
             graph[u][v].get("max_pheromone", MAX_F),
