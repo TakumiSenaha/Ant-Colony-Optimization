@@ -17,7 +17,7 @@ ALPHA = 1.0  # フェロモンの影響度
 BETA = 1.0  # ヒューリスティック情報(帯域幅)の影響度
 EPSILON = 0.1  # ランダムに行動する固定確率
 ANT_NUM = 10  # 世代ごとに探索するアリの数
-GENERATION = 1000  # 総世代数
+GENERATION = 500  # 総世代数
 SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ =====
@@ -28,15 +28,15 @@ BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 class Ant:
     def __init__(
-        self, current: int, destination: int, route: list[int], width: list[int]
+        self, current: int, destinations: set[int], route: list[int], width: list[int]
     ):
-        self.current = current  # 現在のノード
-        self.destination = destination  # コンテンツ保持ノード
-        self.route = route  # 辿ってきた経路の配列
-        self.width = width  # 辿ってきた経路の帯域の配列
+        self.current = current
+        self.destinations = destinations
+        self.route = route
+        self.width = width
 
     def __repr__(self):
-        return f"Ant(current={self.current}, destination={self.destination}, route={self.route}, width={self.width})"
+        return f"Ant(current={self.current}, destinations={self.destinations}, route={self.route}, width={self.width})"
 
 
 def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
@@ -212,7 +212,7 @@ def ant_next_node_const_epsilon(
     ant_list: list[Ant],
     graph: nx.Graph,
     ant_log: list[int],
-    optimal_bottleneck: int,
+    current_optimal_bottleneck: int,
 ) -> None:
     """
     固定パラメータ(α, β, ε)を用いた、最もシンプルなε-Greedy法で次のノードを決定する。
@@ -254,9 +254,9 @@ def ant_next_node_const_epsilon(
         ant.current = next_node
 
         # --- ゴール判定 ---
-        if ant.current == ant.destination:
+        if ant.current in ant.destinations:
             update_pheromone(ant, graph)
-            ant_log.append(1 if min(ant.width) == optimal_bottleneck else 0)
+            ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
             ant_list.remove(ant)
         elif len(ant.route) >= TTL:
             ant_log.append(0)
@@ -297,7 +297,7 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
     # ===== スタートノード切り替えのための設定 =====
-    SWITCH_INTERVAL = 200  # スタートノード切り替え間隔
+    SWITCH_INTERVAL = 100  # スタートノード切り替え間隔
     NUM_NODES = 100
     START_NODE_LIST = random.sample(range(NUM_NODES), 6)
     GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n not in START_NODE_LIST])
@@ -313,86 +313,82 @@ if __name__ == "__main__":
         # スタートノードごとに最適経路・ボトルネック値をキャッシュ
         optimal_bottleneck_dict = {}
 
+        # ===== ★★★ 動的なゴール管理 ★★★ =====
+        all_nodes = list(range(NUM_NODES))
+        initial_provider_node = random.choice(all_nodes)
+        goal_nodes = {initial_provider_node}  # setでゴールを管理
+
+        start_node_candidates = [n for n in all_nodes if n != initial_provider_node]
+        start_node_list = random.sample(start_node_candidates, 6)
+
+        previous_start = None
+
         for generation in range(GENERATION):
             # ===== スタートノードの決定 =====
             phase = generation // SWITCH_INTERVAL
-            current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
+            if phase >= len(start_node_list):
+                break
 
-            # ===== スタートノード切り替え時の初期化処理 =====
+            # ===== スタート地点切り替えと動的ゴール追加処理 =====
             if generation % SWITCH_INTERVAL == 0:
+                if previous_start is not None:
+                    print(
+                        f"キャッシュ追加: ノード {previous_start} をゴール群に追加します。"
+                    )
+                    goal_nodes.add(previous_start)
+
+                current_start = start_node_list[phase]
+                if current_start in goal_nodes:
+                    print(
+                        f"警告: スタートノード {current_start} は既にゴールです。このフェーズをスキップします。"
+                    )
+                    optimal_bottleneck_dict[current_start] = -1
+                    previous_start = current_start
+                    continue
+
+                previous_start = current_start
+
                 print(
-                    f"\n--- 世代 {generation}: スタートノードを {current_start} に変更 ---"
+                    f"\n--- 世代 {generation}: スタート {current_start}, ゴール群 {goal_nodes} ---"
                 )
 
-                # BKB（Best Known Bottleneck）を全ノードでリセット
-                print("全ノードのBKBをリセットします。")
                 for node in graph.nodes():
                     graph.nodes[node]["best_known_bottleneck"] = 0
 
-                # 新しいスタート/ゴールペアに対する最適解を計算（リトライ処理付き）
-                # このstart_nodeは、リトライの結果、変更される可能性がある
-                start_node_for_calc = current_start
-                retry_count = 0
-                used_starts = {current_start}  # 既に使用したスタートノードを記録
-
-                while True:
+                # ★★★ 最適解の再定義：複数ゴールの中から最良のものを探す ★★★
+                best_bottleneck_for_phase = 0
+                for goal in goal_nodes:
+                    if current_start == goal:
+                        continue
                     try:
-                        optimal_path = max_load_path(
-                            graph, start_node_for_calc, GOAL_NODE
+                        path = max_load_path(graph, current_start, goal)
+                        bottleneck = min(
+                            graph.edges[u, v]["weight"]
+                            for u, v in zip(path[:-1], path[1:])
                         )
-                        optimal_bottleneck = min(
-                            graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
-                            for i in range(len(optimal_path) - 1)
+                        best_bottleneck_for_phase = max(
+                            best_bottleneck_for_phase, bottleneck
                         )
-                        optimal_bottleneck_dict[current_start] = optimal_bottleneck
-                        print(
-                            f"最適経路: {optimal_path}, ボトルネック帯域幅: {optimal_bottleneck}"
-                        )
-                        break  # 成功したらループを抜ける
-
                     except nx.NetworkXNoPath:
-                        retry_count += 1
-                        print(
-                            f"⚠️ {start_node_for_calc} から {GOAL_NODE} へのパスが存在しません。スタートノードを再設定します。"
-                        )
+                        continue
 
-                        # まだ選ばれていないノードからランダムに候補を選択
-                        candidates = [
-                            n
-                            for n in range(NUM_NODES)
-                            if n not in used_starts and n != GOAL_NODE
-                        ]
+                optimal_bottleneck_dict[current_start] = best_bottleneck_for_phase
+                print(f"現在の最適ボトルネック: {best_bottleneck_for_phase}")
 
-                        if not candidates or retry_count > 10:
-                            print(
-                                "有効なスタートノードが見つかりませんでした。このフェーズをスキップします。"
-                            )
-                            optimal_bottleneck_dict[current_start] = 0  # 失敗を記録
-                            break  # ループを抜ける
+            current_start = start_node_list[phase]
+            current_optimal_bottleneck = optimal_bottleneck_dict.get(current_start, -1)
+            if current_optimal_bottleneck <= 0:
+                continue
 
-                        start_node_for_calc = random.choice(candidates)
-                        used_starts.add(start_node_for_calc)
-                        # 重要：元のリストも更新して、今後の世代で正しいノードを参照できるようにする
-                        START_NODE_LIST[phase % len(START_NODE_LIST)] = (
-                            start_node_for_calc
-                        )
-                        current_start = start_node_for_calc
-
-            # 現在の世代で使用するスタートノードと最適解を取得
-            optimal_bottleneck = optimal_bottleneck_dict.get(current_start, 0)
-            if optimal_bottleneck == 0:
-                continue  # このスタートノードからは到達不能なので探索をスキップ
-
-            # ===== アリの生成と探索 =====
             ants = [
-                Ant(current_start, GOAL_NODE, [current_start], [])
+                Ant(current_start, goal_nodes, [current_start], [])
                 for _ in range(ANT_NUM)
             ]
 
             temp_ant_list = list(ants)
             while temp_ant_list:
                 ant_next_node_const_epsilon(
-                    temp_ant_list, graph, ant_log, optimal_bottleneck
+                    temp_ant_list, graph, ant_log, current_optimal_bottleneck
                 )
 
             # フェロモンの揮発
