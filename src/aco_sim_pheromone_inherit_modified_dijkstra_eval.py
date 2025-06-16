@@ -718,6 +718,7 @@ if __name__ == "__main__":
     for sim in range(SIMULATIONS):
         # グラフはシミュレーションごとに一度だけ生成
         graph = ba_graph(num_nodes=NUM_NODES, num_edges=3, lb=1, ub=10)
+        set_pheromone_min_max_by_degree_and_width(graph)
 
         ant_log: list[int] = []
 
