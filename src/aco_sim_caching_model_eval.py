@@ -1,26 +1,29 @@
 import csv
 import math
 import random
-import sys
-from datetime import datetime
 
 import networkx as nx
-from networkx.drawing.nx_agraph import to_agraph
 
 from modified_dijkstra import max_load_path
 
+# ===== シミュレーションパラメータ =====
 V = 0.98  # フェロモン揮発量
 MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
 TTL = 100  # AntのTime to Live
-W = 1000  # 帯域幅初期値
-ALPHA = 1.0  # フェロモンの影響度（固定）
-BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
-EPSILON = 0.1  # ランダムに行動する固定確率 (例: 10%)
 
-ANT_NUM = 10  # 一回で放つAntの数
-GENERATION = 1000  # ant，interestを放つ回数(世代)
-SIMULATIONS = 100
+# ===== ACOパラメータ =====
+ALPHA = 1.0  # フェロモンの影響度
+BETA = 1.0  # ヒューリスティック情報(帯域幅)の影響度
+EPSILON = 0.1  # ランダムに行動する固定確率
+ANT_NUM = 10  # 世代ごとに探索するアリの数
+GENERATION = 1000  # 総世代数
+SIMULATIONS = 100  # シミュレーションの試行回数
+
+# ===== BKBモデル用パラメータ =====
+PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
+ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
+BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 
 class Ant:
@@ -55,11 +58,6 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
         graph[v][u]["max_pheromone"] = width_v_to_u**5
 
 
-# ===================== 揮発式の切り替えオプション =====================
-# VOLATILIZATION_MODE:
-# 0: 既存の揮発式（固定値を基準に帯域幅で揮発量を調整）
-# 1: 帯域幅の最小値・最大値を基準に揮発量を動的に調整
-# 2: 帯域幅の平均・分散を基準に揮発量を計算
 VOLATILIZATION_MODE = 3
 
 
@@ -77,13 +75,9 @@ def volatilize_by_width(graph: nx.Graph) -> None:
         # v → u の揮発計算
         _apply_volatilization(graph, v, u)
 
-    bkb_evaporation_rate = 0.999  # BKBを維持する割合
     for node in graph.nodes():
         if "best_known_bottleneck" in graph.nodes[node]:
-            graph.nodes[node]["best_known_bottleneck"] *= bkb_evaporation_rate
-
-
-PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ（残存率をさらに下げる）
+            graph.nodes[node]["best_known_bottleneck"] *= BKB_EVAPORATION_RATE
 
 
 def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
