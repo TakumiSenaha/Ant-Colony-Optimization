@@ -175,7 +175,7 @@ ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合のフェロモン増加ボ�
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
     """
     Antがゴールに到達したとき、経路上のフェロモンとノードのBKBを更新する。
-    BKBを更新した経路には功績ボーナスを与える。
+    ★★★ フェロモンは経路上のエッジに「双方向」で付加する ★★★
     """
     bottleneck_bn = min(ant.width) if ant.width else 0
     if bottleneck_bn == 0:
@@ -194,11 +194,21 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         if bottleneck_bn > current_bkb_v:
             pheromone_increase *= ACHIEVEMENT_BONUS
 
-        # フェロモンを更新
-        graph[u][v]["pheromone"] = min(
-            graph[u][v]["pheromone"] + pheromone_increase,
-            graph[u][v].get("max_pheromone", MAX_F),
+        # ===== ★★★ フェロモンを双方向に付加 ★★★ =====
+        # 順方向 (u -> v) のフェロモンを更新
+        max_pheromone_uv = graph.edges[u, v].get("max_pheromone", MAX_F)
+        graph.edges[u, v]["pheromone"] = min(
+            graph.edges[u, v]["pheromone"] + pheromone_increase,
+            max_pheromone_uv,
         )
+
+        # 逆方向 (v -> u) のフェロモンも更新
+        max_pheromone_vu = graph.edges[v, u].get("max_pheromone", MAX_F)
+        graph.edges[v, u]["pheromone"] = min(
+            graph.edges[v, u]["pheromone"] + pheromone_increase,
+            max_pheromone_vu,
+        )
+        # =======================================================
 
     # --- BKBの更新（フェロモン付加の後に行う）---
     # 経路上の各ノードのBKBを更新
