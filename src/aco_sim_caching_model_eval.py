@@ -17,7 +17,7 @@ ALPHA = 1.0  # フェロモンの影響度
 BETA = 1.0  # ヒューリスティック情報(帯域幅)の影響度
 EPSILON = 0.1  # ランダムに行動する固定確率
 ANT_NUM = 10  # 世代ごとに探索するアリの数
-GENERATION = 500  # 総世代数
+GENERATION = 1000  # 総世代数
 SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ =====
@@ -266,6 +266,7 @@ def ant_next_node_const_epsilon(
         # --- ゴール判定 ---
         if ant.current in ant.destinations:
             update_pheromone(ant, graph)
+            # ant_log.append(min(ant.width))
             ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
             ant_list.remove(ant)
         elif len(ant.route) >= TTL:
@@ -364,13 +365,16 @@ if __name__ == "__main__":
     # ===== スタートノード切り替えのための設定 =====
     SWITCH_INTERVAL = 100  # スタートノード切り替え間隔
     NUM_NODES = 100
-    START_NODE_LIST = random.sample(range(NUM_NODES), 6)
+    START_NODE_LIST = random.sample(range(NUM_NODES), 10)
     GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n not in START_NODE_LIST])
     # ==========================================
 
-    for sim in range(SIMULATIONS):
+    for sim in range(1):
         # グラフはシミュレーションごとに一度だけ生成
-        graph = ba_graph(num_nodes=NUM_NODES, num_edges=3, lb=1, ub=10)
+        # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
+        # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
+        graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=10)
+
         set_pheromone_min_max_by_degree_and_width(graph)
 
         ant_log: list[int] = []
@@ -384,7 +388,7 @@ if __name__ == "__main__":
         goal_nodes = {initial_provider_node}  # setでゴールを管理
 
         start_node_candidates = [n for n in all_nodes if n != initial_provider_node]
-        start_node_list = random.sample(start_node_candidates, 6)
+        start_node_list = random.sample(start_node_candidates, 10)
 
         previous_start = None
 
