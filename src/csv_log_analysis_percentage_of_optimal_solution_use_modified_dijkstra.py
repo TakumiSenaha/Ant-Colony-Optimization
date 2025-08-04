@@ -91,13 +91,13 @@ if optimal_percentages:  # データが正常に処理された場合のみグ�
         marker="o",
         linestyle="-",
         color="black",
-        label="Routing Ratio",
+        # label="Routing Ratio",
     )
 
     plt.ylim((0, 105))
     plt.xlim(left=0)
     plt.xlabel("Generation", fontsize=20)
-    plt.ylabel("Routing Ratio [%]", fontsize=20)
+    plt.ylabel("Optimal Path Selection Ratio [%]", fontsize=20)
     plt.legend(fontsize=15, loc="lower right")
     plt.grid(True, linestyle="--", alpha=0.6)
 
