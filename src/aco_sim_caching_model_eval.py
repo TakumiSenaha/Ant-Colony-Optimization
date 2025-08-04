@@ -294,6 +294,61 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
     return graph
 
 
+def er_graph(
+    num_nodes: int, edge_prob: float = 0.12, lb: int = 1, ub: int = 10
+) -> nx.Graph:
+    """
+    Erdős–Rényi (ER)モデルでランダムグラフを生成
+    - 各ノードに best_known_bottleneck を初期化
+    - 各エッジに帯域幅(weight)等を初期化
+    edge_probは、BAモデルと同程度のエッジ数になるように調整してください。
+    """
+    graph = nx.erdos_renyi_graph(num_nodes, edge_prob)
+
+    for node in graph.nodes():
+        graph.nodes[node]["best_known_bottleneck"] = 0
+
+    for u, v in graph.edges():
+        weight = random.randint(lb, ub) * 10
+        graph[u][v]["weight"] = weight
+        graph[u][v]["local_min_bandwidth"] = weight
+        graph[u][v]["local_max_bandwidth"] = weight
+        graph[u][v]["pheromone"] = MIN_F
+        graph[u][v]["max_pheromone"] = MAX_F
+        graph[u][v]["min_pheromone"] = MIN_F
+
+    return graph
+
+
+def grid_graph(num_nodes: int, lb: int = 1, ub: int = 10) -> nx.Graph:
+    """
+    グリッド（格子）ネットワークを生成
+    - num_nodesが平方数の場合のみ対応（例: 49, 100）
+    - 各ノードに best_known_bottleneck を初期化
+    - 各エッジに帯域幅(weight)等を初期化
+    """
+    import math
+
+    side = int(math.sqrt(num_nodes))
+    if side * side != num_nodes:
+        raise ValueError("num_nodesは平方数（例: 49, 100）である必要があります")
+    graph = nx.grid_2d_graph(side, side)
+    # ノードをint型に変換（0, 1, ..., num_nodes-1）
+    mapping = {(i, j): i * side + j for i in range(side) for j in range(side)}
+    graph = nx.relabel_nodes(graph, mapping)
+    for node in graph.nodes():
+        graph.nodes[node]["best_known_bottleneck"] = 0
+    for u, v in graph.edges():
+        weight = random.randint(lb, ub) * 10
+        graph[u][v]["weight"] = weight
+        graph[u][v]["local_min_bandwidth"] = weight
+        graph[u][v]["local_max_bandwidth"] = weight
+        graph[u][v]["pheromone"] = MIN_F
+        graph[u][v]["max_pheromone"] = MAX_F
+        graph[u][v]["min_pheromone"] = MIN_F
+    return graph
+
+
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
     # ===== スタートノード切り替えのための設定 =====
