@@ -708,97 +708,47 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
 
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
-    # ===== スタートノード切り替えのための設定 =====
-    SWITCH_INTERVAL = 200  # スタートノード切り替え間隔
     NUM_NODES = 100
-    START_NODE_LIST = random.sample(range(NUM_NODES), 6)
-    GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n not in START_NODE_LIST])
-    # ==========================================
-
+    NUM_EDGES = 3
     for sim in range(SIMULATIONS):
-        # グラフはシミュレーションごとに一度だけ生成
-        graph = ba_graph(num_nodes=NUM_NODES, num_edges=3, lb=1, ub=10)
+        # BAモデルでグラフを生成
+        graph = ba_graph(num_nodes=NUM_NODES, num_edges=NUM_EDGES, lb=1, ub=10)
         set_pheromone_min_max_by_degree_and_width(graph)
+
+        # ランダムにスタート・ゴールノードを決定（同じノードにならないように）
+        while True:
+            START_NODE = random.randint(0, NUM_NODES - 1)
+            GOAL_NODE = random.randint(0, NUM_NODES - 1)
+            if START_NODE != GOAL_NODE:
+                break
 
         ant_log: list[int] = []
 
-        # スタートノードごとに最適経路・ボトルネック値をキャッシュ
-        optimal_bottleneck_dict = {}
+        # 最適経路・ボトルネック値を計算（シミュレーション開始時に一度だけ）
+        try:
+            optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
+            optimal_bottleneck = min(
+                graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
+                for i in range(len(optimal_path) - 1)
+            )
+            print(f"最適経路: {optimal_path}, ボトルネック帯域幅: {optimal_bottleneck}")
+        except nx.NetworkXNoPath:
+            print(
+                f"⚠️ {START_NODE} から {GOAL_NODE} へのパスが存在しません。別のグラフを生成します。"
+            )
+            continue
+
+        # 全ノードのBKBを初期化
+        for node in graph.nodes():
+            graph.nodes[node]["best_known_bottleneck"] = 0
 
         for generation in range(GENERATION):
-            # ===== スタートノードの決定 =====
-            phase = generation // SWITCH_INTERVAL
-            current_start = START_NODE_LIST[phase % len(START_NODE_LIST)]
-
-            # ===== スタートノード切り替え時の初期化処理 =====
-            if generation % SWITCH_INTERVAL == 0:
-                print(
-                    f"\n--- 世代 {generation}: スタートノードを {current_start} に変更 ---"
-                )
-
-                # BKB（Best Known Bottleneck）を全ノードでリセット
-                print("全ノードのBKBをリセットします。")
-                for node in graph.nodes():
-                    graph.nodes[node]["best_known_bottleneck"] = 0
-
-                # 新しいスタート/ゴールペアに対する最適解を計算（リトライ処理付き）
-                # このstart_nodeは、リトライの結果、変更される可能性がある
-                start_node_for_calc = current_start
-                retry_count = 0
-                used_starts = {current_start}  # 既に使用したスタートノードを記録
-
-                while True:
-                    try:
-                        optimal_path = max_load_path(
-                            graph, start_node_for_calc, GOAL_NODE
-                        )
-                        optimal_bottleneck = min(
-                            graph[optimal_path[i]][optimal_path[i + 1]]["weight"]
-                            for i in range(len(optimal_path) - 1)
-                        )
-                        optimal_bottleneck_dict[current_start] = optimal_bottleneck
-                        print(
-                            f"最適経路: {optimal_path}, ボトルネック帯域幅: {optimal_bottleneck}"
-                        )
-                        break  # 成功したらループを抜ける
-
-                    except nx.NetworkXNoPath:
-                        retry_count += 1
-                        print(
-                            f"⚠️ {start_node_for_calc} から {GOAL_NODE} へのパスが存在しません。スタートノードを再設定します。"
-                        )
-
-                        # まだ選ばれていないノードからランダムに候補を選択
-                        candidates = [
-                            n
-                            for n in range(NUM_NODES)
-                            if n not in used_starts and n != GOAL_NODE
-                        ]
-
-                        if not candidates or retry_count > 10:
-                            print(
-                                "有効なスタートノードが見つかりませんでした。このフェーズをスキップします。"
-                            )
-                            optimal_bottleneck_dict[current_start] = 0  # 失敗を記録
-                            break  # ループを抜ける
-
-                        start_node_for_calc = random.choice(candidates)
-                        used_starts.add(start_node_for_calc)
-                        # 重要：元のリストも更新して、今後の世代で正しいノードを参照できるようにする
-                        START_NODE_LIST[phase % len(START_NODE_LIST)] = (
-                            start_node_for_calc
-                        )
-                        current_start = start_node_for_calc
-
-            # 現在の世代で使用するスタートノードと最適解を取得
-            optimal_bottleneck = optimal_bottleneck_dict.get(current_start, 0)
-            if optimal_bottleneck == 0:
-                continue  # このスタートノードからは到達不能なので探索をスキップ
+            if generation % 100 == 0:
+                print(f"\n--- 世代 {generation} ---")
 
             # ===== アリの生成と探索 =====
             ants = [
-                Ant(current_start, GOAL_NODE, [current_start], [])
-                for _ in range(ANT_NUM)
+                Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)
             ]
 
             temp_ant_list = list(ants)
