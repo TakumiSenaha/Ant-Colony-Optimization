@@ -83,38 +83,35 @@ if optimal_percentages:  # データが正常に処理された場合のみグ�
     x_values = list(range(len(optimal_percentages)))
     y_values = optimal_percentages
 
-    # グラフ描画
-    plt.figure(figsize=(10, 6))
+    # グラフ描画（論文標準形式）
+    plt.figure(figsize=(8, 6))
     plt.plot(
         x_values,
         y_values,
         marker="o",
         linestyle="-",
         color="black",
-        # label="Routing Ratio",
+        linewidth=1.5,
+        markersize=4,
     )
 
     plt.ylim((0, 105))
     plt.xlim(left=0)
     plt.xlabel("Generation", fontsize=20)
     plt.ylabel("Optimal Path Selection Ratio [%]", fontsize=20)
-    plt.legend(fontsize=15, loc="lower right")
-    plt.grid(True, linestyle="--", alpha=0.6)
 
-    # 軸と枠線の強調
+    # 論文標準の軸設定
     ax = plt.gca()
-    ax.spines["top"].set_visible(True)
-    ax.spines["right"].set_visible(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
     ax.spines["left"].set_visible(True)
     ax.spines["bottom"].set_visible(True)
-    for spine in ax.spines.values():
-        spine.set_color("black")
-        spine.set_linewidth(0.5)
+    ax.spines["left"].set_color("black")
+    ax.spines["bottom"].set_color("black")
+    ax.spines["left"].set_linewidth(1)
+    ax.spines["bottom"].set_linewidth(1)
 
-    ax.tick_params(axis="both", which="major", labelsize=20)
-    ax.set_frame_on(True)
-    ax.patch.set_edgecolor("black")
-    ax.patch.set_linewidth(1.5)
+    ax.tick_params(axis="both", which="major", labelsize=20, direction="out")
 
     plt.tight_layout()
     plt.savefig(export_image_name, format="svg")
