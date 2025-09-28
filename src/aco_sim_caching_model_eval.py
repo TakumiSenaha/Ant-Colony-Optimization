@@ -369,6 +369,12 @@ if __name__ == "__main__":
     GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n not in START_NODE_LIST])
     # ==========================================
 
+    # ===== ログファイルの初期化 =====
+    log_filename = "./simulation_result/log_ant.csv"
+    with open(log_filename, "w", newline="") as f:
+        pass  # 空のファイルを作成
+    print(f"ログファイル '{log_filename}' を初期化しました。")
+
     for sim in range(1):
         # グラフはシミュレーションごとに一度だけ生成
         # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)

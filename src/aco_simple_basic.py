@@ -244,6 +244,18 @@ if __name__ == "__main__":
     print(f"スタートノード: {START_NODE}, ゴールノード: {GOAL_NODE}")
     print(f"実行予定: {SIMULATIONS}回のシミュレーション × {GENERATION}世代")
 
+    # ===== ログファイルの初期化 =====
+    filename = (
+        "./simulation_result/log_ant_pheromone_only.csv"
+        if USE_PHEROMONE_ONLY
+        else "./simulation_result/log_ant_simple_basic.csv"
+    )
+
+    # 既存のファイルがあれば削除（空のファイルで初期化）
+    with open(filename, "w", newline="") as f:
+        pass  # 空のファイルを作成
+    print(f"ログファイル '{filename}' を初期化しました。")
+
     for sim in range(SIMULATIONS):
         # グラフ生成（元のコードと同じ構造を維持）
         graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=10)
