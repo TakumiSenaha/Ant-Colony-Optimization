@@ -43,6 +43,25 @@ class Ant:
         )
 
 
+def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
+    """ノードの隣接数と帯域幅に基づいてフェロモンの最小値と最大値を双方向に設定"""
+    for u, v in graph.edges():
+        # ノードuとvの隣接ノード数を取得
+        degree_u = len(list(graph.neighbors(u)))
+        degree_v = len(list(graph.neighbors(v)))
+
+        # フェロモン最小値を隣接ノード数に基づいて設定
+        graph[u][v]["min_pheromone"] = MIN_F * 3 // degree_u
+        graph[v][u]["min_pheromone"] = MIN_F * 3 // degree_v
+
+        # 帯域幅に基づいてフェロモン最大値を設定
+        width_u_to_v = graph[u][v]["weight"]
+        width_v_to_u = graph[v][u]["weight"]
+
+        graph[u][v]["max_pheromone"] = width_u_to_v**5
+        graph[v][u]["max_pheromone"] = width_v_to_u**5
+
+
 def simple_pheromone_update(ant: Ant, graph: nx.Graph) -> None:
     """
     最もシンプルなフェロモン更新：
@@ -61,15 +80,17 @@ def simple_pheromone_update(ant: Ant, graph: nx.Graph) -> None:
         u, v = ant.route[i - 1], ant.route[i]
 
         # 順方向 (u -> v) のフェロモンを更新
+        max_pheromone_uv = graph.edges[u, v].get("max_pheromone", MAX_F)
         graph.edges[u, v]["pheromone"] = min(
             graph.edges[u, v]["pheromone"] + pheromone_increase,
-            MAX_F,
+            max_pheromone_uv,
         )
 
         # 逆方向 (v -> u) のフェロモンも更新
+        max_pheromone_vu = graph.edges[v, u].get("max_pheromone", MAX_F)
         graph.edges[v, u]["pheromone"] = min(
             graph.edges[v, u]["pheromone"] + pheromone_increase,
-            MAX_F,
+            max_pheromone_vu,
         )
 
 
@@ -82,12 +103,14 @@ def simple_volatilize(graph: nx.Graph) -> None:
     for u, v in graph.edges():
         # u → v の揮発
         current_pheromone_uv = graph[u][v]["pheromone"]
-        new_pheromone_uv = max(math.floor(current_pheromone_uv * V), MIN_F)
+        min_pheromone_uv = graph[u][v].get("min_pheromone", MIN_F)
+        new_pheromone_uv = max(math.floor(current_pheromone_uv * V), min_pheromone_uv)
         graph[u][v]["pheromone"] = new_pheromone_uv
 
         # v → u の揮発
         current_pheromone_vu = graph[v][u]["pheromone"]
-        new_pheromone_vu = max(math.floor(current_pheromone_vu * V), MIN_F)
+        min_pheromone_vu = graph[v][u].get("min_pheromone", MIN_F)
+        new_pheromone_vu = max(math.floor(current_pheromone_vu * V), min_pheromone_vu)
         graph[v][u]["pheromone"] = new_pheromone_vu
 
 
@@ -161,6 +184,8 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
 
         # フェロモン値を初期化（シンプルに固定値）
         graph[u][v]["pheromone"] = MIN_F
+        graph[u][v]["max_pheromone"] = MAX_F
+        graph[u][v]["min_pheromone"] = MIN_F
 
     return graph
 
@@ -177,6 +202,8 @@ def er_graph(
         weight = random.randint(lb, ub) * 10
         graph[u][v]["weight"] = weight
         graph[u][v]["pheromone"] = MIN_F
+        graph[u][v]["max_pheromone"] = MAX_F
+        graph[u][v]["min_pheromone"] = MIN_F
 
     return graph
 
@@ -199,6 +226,8 @@ def grid_graph(num_nodes: int, lb: int = 1, ub: int = 10) -> nx.Graph:
         weight = random.randint(lb, ub) * 10
         graph[u][v]["weight"] = weight
         graph[u][v]["pheromone"] = MIN_F
+        graph[u][v]["max_pheromone"] = MAX_F
+        graph[u][v]["min_pheromone"] = MIN_F
 
     return graph
 
@@ -218,6 +247,9 @@ if __name__ == "__main__":
     for sim in range(SIMULATIONS):
         # グラフ生成（元のコードと同じ構造を維持）
         graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=10)
+
+        # フェロモンの最小最大値を設定
+        set_pheromone_min_max_by_degree_and_width(graph)
 
         ant_log: list[int] = []
 
