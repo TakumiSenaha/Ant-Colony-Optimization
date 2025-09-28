@@ -7,6 +7,8 @@ from datetime import datetime
 import networkx as nx
 from networkx.drawing.nx_agraph import to_agraph
 
+from modified_dijkstra import max_load_path
+
 V = 0.99  # フェロモン揮発量
 MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
@@ -228,7 +230,12 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         # )
 
 
-def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> None:
+def ant_next_node(
+    ant_list: list[Ant],
+    graph: nx.Graph,
+    ant_log: list[int],
+    current_optimal_bottleneck: int,
+) -> None:
     """
     Antの次の移動先を決定し、移動を実行
     """
@@ -270,15 +277,9 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
             # 目的ノードに到達した場合、フェロモンを更新してリストから削除
             if ant.current == ant.destination:
                 update_pheromone(ant, graph)
-                ant_log.append(min(ant.width))
+                ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
                 ant_list.remove(ant)
                 print(f"Ant Goal! → {ant.route} : {min(ant.width)}")
-
-                bottleneck_bandwidth = min(ant.width)
-                if bottleneck_bandwidth == 100 or bottleneck_bandwidth == 90:
-                    print(
-                        f"ボトルネック帯域が{bottleneck_bandwidth}の経路: {ant.route}"
-                    )
 
             # TTL（生存時間）を超えた場合もリストから削除
             elif len(ant.route) == TTL:
@@ -288,7 +289,11 @@ def ant_next_node(ant_list: list[Ant], graph: nx.Graph, ant_log: list[int]) -> N
 
 
 def ant_next_node_aware_generation(
-    ant_list: list[Ant], graph: nx.Graph, ant_log: list[int], generation: int
+    ant_list: list[Ant],
+    graph: nx.Graph,
+    ant_log: list[int],
+    generation: int,
+    current_optimal_bottleneck: int,
 ) -> None:
     """Antの次の移動先を決定し、移動を実行"""
     alpha = 1 + (generation / GENERATION) * 5  # フェロモンの影響を増加（1 → 6）
@@ -325,7 +330,7 @@ def ant_next_node_aware_generation(
             # ゴールに到達した場合
             if ant.current == ant.destination:
                 update_pheromone(ant, graph)
-                ant_log.append(min(ant.width))
+                ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
                 ant_list.remove(ant)
                 print(f"Ant Goal! → {ant.route} : {min(ant.width)}")
             elif len(ant.route) == TTL:  # TTLを超えた場合
@@ -461,139 +466,6 @@ def make_graph_bidirectional(graph: nx.Graph) -> nx.DiGraph:
     return directed_G
 
 
-def set_optimal_path(
-    graph: nx.Graph,
-    start: int,
-    goal: int,
-    min_pheromone: int = 100,
-    max_hops: int = 2,
-    max_attempts: int = 100,
-    max_weight: int = 100,
-) -> nx.Graph:
-    """
-    指定されたスタートノードとゴールノードの間に最適経路を設定する。
-    - 経路が見つかるまで最大 max_attempts 回試行。
-    - 経路が見つからない場合はネットワークを再生成する。
-
-    - start: スタートノード
-    - goal: ゴールノード
-    - min_pheromone: 最適経路のエッジに設定する初期フェロモン値
-    - max_hops: ランダム経路の最大ホップ数
-    - max_attempts: 試行回数の上限
-    """
-    attempt = 0
-
-    while attempt < max_attempts:
-        attempt += 1
-        print(f"Attempt {attempt}: Setting optimal path from {start} to {goal}...")
-
-        # ランダム経路の設定
-        current_node = start
-        path = [current_node]
-        visited = set(path)
-
-        # 失敗するごとにランダム経路の最大ホップ数を設定を増加して緩和する．
-        max_hops = max_hops + attempt
-
-        for _ in range(max_hops):
-            neighbors = list(graph.neighbors(current_node))
-            # 訪問済みノードを除外
-            neighbors = [n for n in neighbors if n not in visited]
-
-            if not neighbors:
-                print(
-                    f"No further neighbors from node {current_node}. Stopping path extension."
-                )
-                break
-
-            # 次のノードをランダムに選択
-            next_node = random.choice(neighbors)
-            path.append(next_node)
-            visited.add(next_node)
-
-            # ゴールノードに到達したら終了
-            if next_node == goal:
-                break
-
-            current_node = next_node
-
-        # 経路がゴールに到達している場合、帯域幅を設定して終了
-        if path[-1] == goal:
-            print(f"Random path from {start} to {goal}: {path}")
-            for i in range(len(path) - 1):
-                u, v = path[i], path[i + 1]
-                graph[u][v]["weight"] = max_weight
-                graph[v][u]["weight"] = max_weight
-                graph[u][v]["pheromone"] = min_pheromone
-                graph[v][u]["pheromone"] = min_pheromone
-                graph[u][v]["local_min_bandwidth"] = max_weight
-                graph[v][u]["local_min_bandwidth"] = max_weight
-                graph[u][v]["local_max_bandwidth"] = max_weight
-                graph[v][u]["local_max_bandwidth"] = max_weight
-                print(f"Set optimal path edge ({u} → {v}) to weight=100.")
-            return graph
-
-        print(f"Path from {start} to {goal} did not reach goal. Retrying...")
-
-    # 最大試行回数を超えた場合
-    print(
-        f"Failed to find a valid path from {start} to {goal} after {max_attempts} attempts."
-    )
-    return 0
-
-
-def add_optimal_path(
-    graph: nx.Graph,
-    start: int,
-    goal: int,
-    min_pheromone: int = 100,
-    num_intermediate_nodes: int = 5,
-) -> nx.Graph:
-    """
-    最適経路を設定し、帯域幅を100に固定。
-
-    - start: スタートノード
-    - goal: ゴールノード
-    - min_pheromone: 最適経路のエッジに設定する初期フェロモン値
-    - num_intermediate_nodes: 経由する中間ノードの数: ホップ数はnum_intermediate_nodes+1
-    """
-    num_nodes = len(graph.nodes())
-    if num_intermediate_nodes >= num_nodes - 2:
-        raise ValueError("中間ノードの数が多すぎます。")
-
-    # スタートノードとゴールノード以外のノードをランダムに選択
-    intermediate_nodes = random.sample(
-        [i for i in range(num_nodes) if i not in {start, goal}], num_intermediate_nodes
-    )
-
-    # 経路のノードを結合
-    full_path = [start] + intermediate_nodes + [goal]
-
-    print(f"Generated long path: {full_path}")
-
-    # 経路に基づきエッジを設定
-    for u, v in zip(full_path[:-1], full_path[1:]):
-        graph.add_edge(
-            u,
-            v,
-            weight=100,
-            pheromone=min_pheromone,
-            local_min_bandwidth=100,
-            local_max_bandwidth=100,
-        )
-        graph.add_edge(
-            v,
-            u,
-            weight=100,
-            pheromone=min_pheromone,
-            local_min_bandwidth=100,
-            local_max_bandwidth=100,
-        )
-        print(f"Set optimal path edge ({u} → {v}) to weight=100.")
-
-    return graph
-
-
 def save_graph(graph: nx.Graph):
     """グラフをファイルに保存"""
     file_name = datetime.now().strftime("%Y%m%d_%H%M%S") + ".edgelist"
@@ -647,58 +519,53 @@ def visualize_graph(graph: nx.Graph, filename="network_graph.pdf"):
 
 # Main処理
 if __name__ == "__main__":
+    # ===== ログファイルの初期化 =====
+    import os
+
+    log_files = [
+        "./simulation_result/log_ant.csv",
+        "./simulation_result/log_interest.csv",
+    ]
+
+    for log_file in log_files:
+        if os.path.exists(log_file):
+            os.remove(log_file)
+            print(f"既存のログファイル '{log_file}' を削除しました。")
+
+        with open(log_file, "w", newline="") as f:
+            pass  # 空のファイルを作成
+        print(f"ログファイル '{log_file}' を初期化しました。")
+
     for sim in range(SIMULATIONS):
         num_nodes = 100  # ノードの数
-        num_edges = 3  # 新しいノードが既存ノードに接続する数
+        num_edges = 6  # 新しいノードが既存ノードに接続する数
 
-        # シミュレーションで使用する開始ノードと終了ノード
-        START_NODE: int
-        GOAL_NODE: int
+        # BAモデルでグラフを生成
+        graph: nx.Graph = ba_graph(num_nodes, num_edges)
+        # グラフを双方向に変換
+        graph = make_graph_bidirectional(graph)
 
-        use_existing_graph = False  # 既存のグラフを使用するかどうか
-
-        if not use_existing_graph:
-            # BAモデルでグラフを生成
-            graph: nx.Graph = ba_graph(num_nodes, num_edges)
-            # グラフを双方向に変換
-            graph = make_graph_bidirectional(graph)
-
-            # シミュレーションで使用する開始ノードと終了ノードを決定
-            while True:
-                START_NODE = random.randint(0, num_nodes - 1)
-                GOAL_NODE = random.randint(0, num_nodes - 1)
-                if START_NODE != GOAL_NODE:
-                    break
-
-            # # 最適経路を追加し、その経路の帯域をすべて100に設定
-            # graph = add_optimal_path(
-            #     graph,
-            #     START_NODE,
-            #     GOAL_NODE,
-            #     min_pheromone=MIN_F,
-            #     num_intermediate_nodes=6,
-            # )
-
-            # 存在するある1つの経路を最適経路とするため、その経路の帯域をすべて100に設定
-            graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
-            # graph = set_optimal_path(graph, next_start_node, GOAL_NODE, min_pheromone=MIN_F)
-            while graph == 0:
-                graph = ba_graph(num_nodes, num_edges)
-                graph = make_graph_bidirectional(graph)
-                graph = set_optimal_path(graph, START_NODE, GOAL_NODE)
-
-        else:
-            graph = load_graph("ba_model_graph")
-            # グラフを双方向に変換
-            graph = make_graph_bidirectional(graph)
-
-            START_NODE = 30
-            GOAL_NODE = 32
-
-        # next_start_node = random.randint(0, num_nodes - 1)
+        # シミュレーションで使用する開始ノードと終了ノードを決定
+        START_NODE = random.randint(0, num_nodes - 1)
+        GOAL_NODE = random.choice([n for n in range(num_nodes) if n != START_NODE])
 
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
+
+        # 最適解の計算（比較用）
+        try:
+            optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
+            optimal_bottleneck = min(
+                graph.edges[u, v]["weight"]
+                for u, v in zip(optimal_path[:-1], optimal_path[1:])
+            )
+            print(
+                f"シミュレーション {sim+1}: スタート {START_NODE}, ゴール {GOAL_NODE}"
+            )
+            print(f"最適ボトルネック帯域: {optimal_bottleneck}")
+        except nx.NetworkXNoPath:
+            print(f"シミュレーション {sim+1}: 経路が存在しません。スキップします。")
+            continue
 
         # AntとInterestオブジェクト格納リスト
         ant_list: list[Ant] = []
@@ -709,8 +576,6 @@ if __name__ == "__main__":
         interest_log: list[int] = []
 
         for generation in range(GENERATION):
-            print(f"Simulation {sim+1}, Generation {generation+1}")
-
             # Antを配置
             ant_list.extend(
                 [Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)]
@@ -718,7 +583,7 @@ if __name__ == "__main__":
 
             # Antによる探索
             for _ in range(TTL):
-                ant_next_node(ant_list, graph, ant_log)
+                ant_next_node(ant_list, graph, ant_log, optimal_bottleneck)
 
             # フェロモンの揮発
             volatilize_by_width(graph)
@@ -731,8 +596,14 @@ if __name__ == "__main__":
             for _ in range(TTL):
                 interest_next_node(interest_list, graph, interest_log)
 
-        # save_graph_without_pheromone(graph, "ba_model_graph")
-        save_graph_with_pheromone(graph, "ba_model_graph_with_pheromone")
+            # 進捗表示
+            if generation % 100 == 0:
+                recent_success_rate = (
+                    sum(ant_log[-100:]) / min(len(ant_log), 100) if ant_log else 0
+                )
+                print(
+                    f"世代 {generation}: 最近100回の成功率 = {recent_success_rate:.3f}"
+                )
 
         # 各シミュレーションのログをCSVに保存
         with open("./simulation_result/log_ant.csv", "a", newline="") as f:
@@ -743,7 +614,10 @@ if __name__ == "__main__":
             writer = csv.writer(f)
             writer.writerow(interest_log)
 
-    # 最終的なグラフの視覚化
-    # visualize_graph(graph, "network_graph.pdf")
-    print("Simulations completed.")
-    print(START_NODE, GOAL_NODE)
+        # 最終成功率の表示
+        final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
+        print(
+            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - 成功率: {final_success_rate:.3f}"
+        )
+
+    print(f"\n🎉 全{SIMULATIONS}回のシミュレーション完了！")
