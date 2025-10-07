@@ -28,15 +28,15 @@ BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 class Ant:
     def __init__(
-        self, current: int, destinations: set[int], route: list[int], width: list[int]
+        self, current: int, destination: int, route: list[int], width: list[int]
     ):
         self.current = current
-        self.destinations = destinations
+        self.destination = destination
         self.route = route
         self.width = width
 
     def __repr__(self):
-        return f"Ant(current={self.current}, destinations={self.destinations}, route={self.route}, width={self.width})"
+        return f"Ant(current={self.current}, destination={self.destination}, route={self.route}, width={self.width})"
 
 
 def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
@@ -150,14 +150,6 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
     )
     graph[u][v]["pheromone"] = new_pheromone
 
-    # --- ログを出力 ---
-    # print(f"Edge ({u} → {v})")
-    # print(f"  計算されたレート: {rate:.4f}")
-    # print(f"  weight (エッジ帯域幅): {weight_uv}")
-    # print(f"  local_min_bandwidth: {local_min_bandwidth}")
-    # print(f"  local_max_bandwidth: {local_max_bandwidth}")
-    # print(f"  新しいフェロモン値: {current_pheromone - new_pheromone}\n")
-
 
 def calculate_pheromone_increase(bottleneck_bandwidth: int) -> float:
     """
@@ -264,9 +256,8 @@ def ant_next_node_const_epsilon(
         ant.current = next_node
 
         # --- ゴール判定 ---
-        if ant.current in ant.destinations:
+        if ant.current == ant.destination:
             update_pheromone(ant, graph)
-            # ant_log.append(min(ant.width))
             ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
             ant_list.remove(ant)
         elif len(ant.route) >= TTL:
@@ -362,20 +353,26 @@ def grid_graph(num_nodes: int, lb: int = 1, ub: int = 10) -> nx.Graph:
 
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":
-    # ===== スタートノード切り替えのための設定 =====
-    SWITCH_INTERVAL = 100  # スタートノード切り替え間隔
-    NUM_NODES = 100
-    START_NODE_LIST = random.sample(range(NUM_NODES), 10)
-    GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n not in START_NODE_LIST])
-    # ==========================================
-
     # ===== ログファイルの初期化 =====
+    import os
+
     log_filename = "./simulation_result/log_ant.csv"
+    if os.path.exists(log_filename):
+        os.remove(log_filename)
+        print(f"既存のログファイル '{log_filename}' を削除しました。")
+
     with open(log_filename, "w", newline="") as f:
         pass  # 空のファイルを作成
     print(f"ログファイル '{log_filename}' を初期化しました。")
 
-    for sim in range(1):
+    for sim in range(SIMULATIONS):
+        # ===== シンプルな固定スタート・ゴール設定 =====
+        NUM_NODES = 100
+        START_NODE = random.randint(0, NUM_NODES - 1)
+        GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n != START_NODE])
+
+        print(f"シミュレーション {sim+1}: スタート {START_NODE}, ゴール {GOAL_NODE}")
+
         # グラフはシミュレーションごとに一度だけ生成
         # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
         # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
@@ -383,95 +380,52 @@ if __name__ == "__main__":
 
         set_pheromone_min_max_by_degree_and_width(graph)
 
+        # 最適解の計算（比較用）
+        try:
+            optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
+            optimal_bottleneck = min(
+                graph.edges[u, v]["weight"]
+                for u, v in zip(optimal_path[:-1], optimal_path[1:])
+            )
+            print(f"最適ボトルネック帯域: {optimal_bottleneck}")
+        except nx.NetworkXNoPath:
+            print("経路が存在しません。スキップします。")
+            continue
+
         ant_log: list[int] = []
 
-        # スタートノードごとに最適経路・ボトルネック値をキャッシュ
-        optimal_bottleneck_dict = {}
-
-        # ===== ★★★ 動的なゴール管理 ★★★ =====
-        all_nodes = list(range(NUM_NODES))
-        initial_provider_node = random.choice(all_nodes)
-        goal_nodes = {initial_provider_node}  # setでゴールを管理
-
-        start_node_candidates = [n for n in all_nodes if n != initial_provider_node]
-        start_node_list = random.sample(start_node_candidates, 10)
-
-        previous_start = None
-
         for generation in range(GENERATION):
-            # ===== スタートノードの決定 =====
-            phase = generation // SWITCH_INTERVAL
-            if phase >= len(start_node_list):
-                break
-
-            # ===== スタート地点切り替えと動的ゴール追加処理 =====
-            if generation % SWITCH_INTERVAL == 0:
-                if previous_start is not None:
-                    print(
-                        f"キャッシュ追加: ノード {previous_start} をゴール群に追加します。"
-                    )
-                    goal_nodes.add(previous_start)
-
-                current_start = start_node_list[phase]
-                if current_start in goal_nodes:
-                    print(
-                        f"警告: スタートノード {current_start} は既にゴールです。このフェーズをスキップします。"
-                    )
-                    optimal_bottleneck_dict[current_start] = -1
-                    previous_start = current_start
-                    continue
-
-                previous_start = current_start
-
-                print(
-                    f"\n--- 世代 {generation}: スタート {current_start}, ゴール群 {goal_nodes} ---"
-                )
-
-                for node in graph.nodes():
-                    graph.nodes[node]["best_known_bottleneck"] = 0
-
-                # ★★★ 最適解の再定義：複数ゴールの中から最良のものを探す ★★★
-                best_bottleneck_for_phase = 0
-                for goal in goal_nodes:
-                    if current_start == goal:
-                        continue
-                    try:
-                        path = max_load_path(graph, current_start, goal)
-                        bottleneck = min(
-                            graph.edges[u, v]["weight"]
-                            for u, v in zip(path[:-1], path[1:])
-                        )
-                        best_bottleneck_for_phase = max(
-                            best_bottleneck_for_phase, bottleneck
-                        )
-                    except nx.NetworkXNoPath:
-                        continue
-
-                optimal_bottleneck_dict[current_start] = best_bottleneck_for_phase
-                print(f"現在の最適ボトルネック: {best_bottleneck_for_phase}")
-
-            current_start = start_node_list[phase]
-            current_optimal_bottleneck = optimal_bottleneck_dict.get(current_start, -1)
-            if current_optimal_bottleneck <= 0:
-                continue
-
             ants = [
-                Ant(current_start, goal_nodes, [current_start], [])
-                for _ in range(ANT_NUM)
+                Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)
             ]
 
             temp_ant_list = list(ants)
             while temp_ant_list:
                 ant_next_node_const_epsilon(
-                    temp_ant_list, graph, ant_log, current_optimal_bottleneck
+                    temp_ant_list, graph, ant_log, optimal_bottleneck
                 )
 
             # フェロモンの揮発
             volatilize_by_width(graph)
+
+            # 進捗表示
+            if generation % 100 == 0:
+                recent_success_rate = (
+                    sum(ant_log[-100:]) / min(len(ant_log), 100) if ant_log else 0
+                )
+                print(
+                    f"世代 {generation}: 最近100回の成功率 = {recent_success_rate:.3f}"
+                )
 
         # --- 結果の保存 ---
         with open("./simulation_result/log_ant.csv", "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(ant_log)
 
-        print(f"✅ シミュレーション {sim+1} 回目完了")
+        # 最終成功率の表示
+        final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
+        print(
+            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - 成功率: {final_success_rate:.3f}"
+        )
+
+    print(f"\n🎉 全{SIMULATIONS}回のシミュレーション完了！")
