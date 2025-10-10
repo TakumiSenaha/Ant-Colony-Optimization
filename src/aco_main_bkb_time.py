@@ -1,6 +1,8 @@
 import csv
 import math
 import random
+import time
+from statistics import mean, stdev
 
 import networkx as nx
 
@@ -215,11 +217,15 @@ def ant_next_node_const_epsilon(
     graph: nx.Graph,
     ant_log: list[int],
     current_optimal_bottleneck: int,
+    timing_stats: dict,
 ) -> None:
     """
     固定パラメータ(α, β, ε)を用いた、最もシンプルなε-Greedy法で次のノードを決定する。
     """
     for ant in reversed(ant_list):
+        # アリ個別の処理開始時刻を記録
+        ant_step_start = time.time()
+
         neighbors = list(graph.neighbors(ant.current))
         candidates = [n for n in neighbors if n not in ant.route]
 
@@ -257,6 +263,10 @@ def ant_next_node_const_epsilon(
 
         # --- ゴール判定 ---
         if ant.current == ant.destination:
+            # アリがゴールに到達した純粋な計算時間を記録
+            ant_arrival_time = time.time() - ant_step_start
+            timing_stats["ant_arrivals"].append(ant_arrival_time)
+
             update_pheromone(ant, graph)
             ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
             ant_list.remove(ant)
@@ -365,36 +375,75 @@ if __name__ == "__main__":
         pass  # 空のファイルを作成
     print(f"ログファイル '{log_filename}' を初期化しました。")
 
+    # ===== 時間測定用の統計データ =====
+    all_simulation_times = []
+    all_generation_times = []
+    all_ant_arrival_times = []
+    all_graph_generation_times = []
+    all_optimal_calculation_times = []
+    all_pheromone_evaporation_times = []
+
+    print(f"\n🚀 {SIMULATIONS}回のシミュレーション開始（詳細時間測定付き）")
+    print("=" * 60)
+
+    total_start_time = time.time()
+
     for sim in range(SIMULATIONS):
+        # I/O処理（時間測定対象外）
+        print(f"\nシミュレーション {sim+1}/{SIMULATIONS}: スタート準備中...")
+
+        simulation_start_time = time.time()
+
         # ===== シンプルな固定スタート・ゴール設定 =====
         NUM_NODES = 100
         START_NODE = random.randint(0, NUM_NODES - 1)
         GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n != START_NODE])
 
-        print(f"シミュレーション {sim+1}: スタート {START_NODE}, ゴール {GOAL_NODE}")
+        # I/O処理（時間測定対象外）
+        print(f"  スタート {START_NODE}, ゴール {GOAL_NODE}")
 
-        # グラフはシミュレーションごとに一度だけ生成
-        # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
-        # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
+        # ===== グラフ生成時間の測定 =====
+        graph_gen_start = time.time()
         graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=10)
-
         set_pheromone_min_max_by_degree_and_width(graph)
+        graph_gen_time = time.time() - graph_gen_start
+        all_graph_generation_times.append(graph_gen_time)
 
-        # 最適解の計算（比較用）
+        # ===== 最適解計算時間の測定 =====
+        optimal_calc_start = time.time()
         try:
             optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
             optimal_bottleneck = min(
                 graph.edges[u, v]["weight"]
                 for u, v in zip(optimal_path[:-1], optimal_path[1:])
             )
-            print(f"最適ボトルネック帯域: {optimal_bottleneck}")
+            optimal_calc_time = time.time() - optimal_calc_start
+            all_optimal_calculation_times.append(optimal_calc_time)
+
+            # I/O処理（時間測定対象外）
+            print(
+                f"  最適ボトルネック帯域: {optimal_bottleneck} (計算時間: {optimal_calc_time:.4f}s)"
+            )
         except nx.NetworkXNoPath:
-            print("経路が存在しません。スキップします。")
+            print("  経路が存在しません。スキップします。")
             continue
 
         ant_log: list[int] = []
+        generation_times = []
+
+        # シミュレーション内の時間統計
+        timing_stats = {
+            "ant_arrivals": [],
+            "generation_times": [],
+            "evaporation_times": [],
+        }
+
+        # I/O処理時間を除外するため、実際の処理開始時刻を記録
+        actual_simulation_start = time.time()
 
         for generation in range(GENERATION):
+            generation_start_time = time.time()
+
             ants = [
                 Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)
             ]
@@ -402,30 +451,133 @@ if __name__ == "__main__":
             temp_ant_list = list(ants)
             while temp_ant_list:
                 ant_next_node_const_epsilon(
-                    temp_ant_list, graph, ant_log, optimal_bottleneck
+                    temp_ant_list, graph, ant_log, optimal_bottleneck, timing_stats
                 )
 
-            # フェロモンの揮発
+            # ===== フェロモン揮発時間の測定 =====
+            evaporation_start = time.time()
             volatilize_by_width(graph)
+            evaporation_time = time.time() - evaporation_start
+            timing_stats["evaporation_times"].append(evaporation_time)
 
-            # 進捗表示
+            generation_time = time.time() - generation_start_time
+            generation_times.append(generation_time)
+
+            # I/O処理（時間測定対象外） - 進捗表示（100世代ごと）
             if generation % 100 == 0:
+                # I/O処理時間を一時停止
+                io_start = time.time()
                 recent_success_rate = (
                     sum(ant_log[-100:]) / min(len(ant_log), 100) if ant_log else 0
                 )
+                avg_gen_time = mean(generation_times[-100:]) if generation_times else 0
                 print(
-                    f"世代 {generation}: 最近100回の成功率 = {recent_success_rate:.3f}"
+                    f"    世代 {generation}: 成功率 = {recent_success_rate:.3f}, "
+                    f"平均世代時間 = {avg_gen_time:.4f}s"
                 )
+                io_time = time.time() - io_start
+                # I/O時間を実際のシミュレーション開始時刻に加算して除外
+                actual_simulation_start += io_time
 
-        # --- 結果の保存 ---
+        # シミュレーション終了時の統計（I/O処理を除外して計算）
+        pure_simulation_time = time.time() - actual_simulation_start
+        all_simulation_times.append(pure_simulation_time)
+        all_generation_times.extend(generation_times)
+        all_ant_arrival_times.extend(timing_stats["ant_arrivals"])
+        all_pheromone_evaporation_times.extend(timing_stats["evaporation_times"])
+
+        # I/O処理（時間測定対象外） - 結果の保存
         with open("./simulation_result/log_ant.csv", "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(ant_log)
 
-        # 最終成功率の表示
+        # I/O処理（時間測定対象外） - 最終成功率の表示
         final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
+        avg_ant_arrival = (
+            mean(timing_stats["ant_arrivals"]) if timing_stats["ant_arrivals"] else 0
+        )
+        avg_generation_time = mean(generation_times) if generation_times else 0
+
         print(
-            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - 成功率: {final_success_rate:.3f}"
+            f"  ✅ 完了 - 成功率: {final_success_rate:.3f}, "
+            f"純粋計算時間: {pure_simulation_time:.2f}s"
+        )
+        print(
+            f"     平均世代時間: {avg_generation_time:.4f}s, "
+            f"平均アリ到達時間: {avg_ant_arrival:.6f}s"
         )
 
-    print(f"\n🎉 全{SIMULATIONS}回のシミュレーション完了！")
+    total_time = time.time() - total_start_time
+
+    # ===== 最終統計の表示 =====
+    print("\n" + "=" * 60)
+    print("🎯 最終統計結果（100回シミュレーション平均）")
+    print("=" * 60)
+
+    print(f"📊 全体実行時間: {total_time:.2f}秒")
+    print()
+
+    if all_simulation_times:
+        print(f"🔄 シミュレーション時間統計:")
+        print(f"   平均: {mean(all_simulation_times):.3f}s")
+        print(
+            f"   標準偏差: {stdev(all_simulation_times) if len(all_simulation_times) > 1 else 0:.3f}s"
+        )
+        print(f"   最小: {min(all_simulation_times):.3f}s")
+        print(f"   最大: {max(all_simulation_times):.3f}s")
+        print()
+
+    if all_generation_times:
+        print(f"🧬 世代時間統計:")
+        print(f"   平均: {mean(all_generation_times):.6f}s")
+        print(
+            f"   標準偏差: {stdev(all_generation_times) if len(all_generation_times) > 1 else 0:.6f}s"
+        )
+        print(f"   最小: {min(all_generation_times):.6f}s")
+        print(f"   最大: {max(all_generation_times):.6f}s")
+        print(f"   総世代数: {len(all_generation_times)}")
+        print()
+
+    if all_ant_arrival_times:
+        print(f"🐜 アリ到達時間統計:")
+        print(f"   平均: {mean(all_ant_arrival_times):.8f}s")
+        print(
+            f"   標準偏差: {stdev(all_ant_arrival_times) if len(all_ant_arrival_times) > 1 else 0:.8f}s"
+        )
+        print(f"   最小: {min(all_ant_arrival_times):.8f}s")
+        print(f"   最大: {max(all_ant_arrival_times):.8f}s")
+        print(f"   総到達回数: {len(all_ant_arrival_times)}")
+        print()
+
+    if all_graph_generation_times:
+        print(f"🕸️  グラフ生成時間統計:")
+        print(f"   平均: {mean(all_graph_generation_times):.6f}s")
+        print(
+            f"   標準偏差: {stdev(all_graph_generation_times) if len(all_graph_generation_times) > 1 else 0:.6f}s"
+        )
+        print(f"   最小: {min(all_graph_generation_times):.6f}s")
+        print(f"   最大: {max(all_graph_generation_times):.6f}s")
+        print()
+
+    if all_optimal_calculation_times:
+        print(f"🎯 最適解計算時間統計:")
+        print(f"   平均: {mean(all_optimal_calculation_times):.6f}s")
+        print(
+            f"   標準偏差: {stdev(all_optimal_calculation_times) if len(all_optimal_calculation_times) > 1 else 0:.6f}s"
+        )
+        print(f"   最小: {min(all_optimal_calculation_times):.6f}s")
+        print(f"   最大: {max(all_optimal_calculation_times):.6f}s")
+        print()
+
+    if all_pheromone_evaporation_times:
+        print(f"💨 フェロモン揮発時間統計:")
+        print(f"   平均: {mean(all_pheromone_evaporation_times):.8f}s")
+        print(
+            f"   標準偏差: {stdev(all_pheromone_evaporation_times) if len(all_pheromone_evaporation_times) > 1 else 0:.8f}s"
+        )
+        print(f"   最小: {min(all_pheromone_evaporation_times):.8f}s")
+        print(f"   最大: {max(all_pheromone_evaporation_times):.8f}s")
+        print()
+
+    print("🎉 全シミュレーション完了！")
+    print("=" * 60)
