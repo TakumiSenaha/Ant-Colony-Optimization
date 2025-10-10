@@ -7,6 +7,10 @@ import matplotlib.pyplot as plt
 # ===== 解析設定 =====
 # シミュレーションで設定したアリの数を指定してください
 ANT_NUM = 10
+
+# グラフ描画設定
+AXIS_LABEL_FONTSIZE = 28  # 軸ラベルのフォントサイズ (12-14pt推奨)
+TICK_LABEL_FONTSIZE = 24  # 目盛りラベルのフォントサイズ (10-12pt推奨)
 # ===================
 
 # CSVファイル名
@@ -83,35 +87,58 @@ if optimal_percentages:  # データが正常に処理された場合のみグ�
     x_values = list(range(len(optimal_percentages)))
     y_values = optimal_percentages
 
-    # グラフ描画（論文標準形式）
-    plt.figure(figsize=(8, 6))
+    # グラフ描画（論文標準形式：箱型）
+    plt.figure(figsize=(10, 7))  # 白銀比に近い比率
     plt.plot(
         x_values,
         y_values,
         marker="o",
         linestyle="-",
         color="black",
-        linewidth=1.5,
-        markersize=4,
+        linewidth=2.0,  # 線幅を太く（0.02cm以上相当）
+        markersize=5,  # マーカーサイズを適度に
     )
 
     plt.ylim((0, 105))
     plt.xlim(left=0)
-    plt.xlabel("Generation", fontsize=20)
-    plt.ylabel("Optimal Path Selection Ratio [%]", fontsize=20)
+    plt.xlabel("Generation", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.ylabel("Optimal Path Selection Ratio [%]", fontsize=AXIS_LABEL_FONTSIZE)
 
-    # 論文標準の軸設定
+    # 論文標準の軸設定（箱型：全ての枠線を表示）
     ax = plt.gca()
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_visible(True)
-    ax.spines["bottom"].set_visible(True)
-    ax.spines["left"].set_color("black")
-    ax.spines["bottom"].set_color("black")
-    ax.spines["left"].set_linewidth(1)
-    ax.spines["bottom"].set_linewidth(1)
+    ax.spines["top"].set_visible(True)  # 上枠線を表示
+    ax.spines["right"].set_visible(True)  # 右枠線を表示
+    ax.spines["left"].set_visible(True)  # 左枠線を表示
+    ax.spines["bottom"].set_visible(True)  # 下枠線を表示
 
-    ax.tick_params(axis="both", which="major", labelsize=20, direction="out")
+    # 全ての枠線を黒色、適切な線幅に設定
+    for spine in ax.spines.values():
+        spine.set_color("black")
+        spine.set_linewidth(1.5)  # 枠線の線幅
+
+    # 目盛りの設定
+    ax.tick_params(
+        axis="both",
+        which="major",
+        labelsize=TICK_LABEL_FONTSIZE,  # 目盛りラベルのフォントサイズ
+        direction="out",  # 目盛りを外向きに
+        length=6,  # 主目盛りの長さ
+        width=1.5,  # 目盛り線の太さ
+        color="black",
+    )
+
+    # 副目盛りの設定
+    ax.tick_params(
+        axis="both",
+        which="minor",
+        direction="out",
+        length=3,  # 副目盛りの長さ（主目盛りより短く）
+        width=1.0,  # 副目盛り線の太さ
+        color="black",
+    )
+
+    # 副目盛りを有効化
+    ax.minorticks_on()
 
     plt.tight_layout()
     plt.savefig(export_image_name, format="svg")
