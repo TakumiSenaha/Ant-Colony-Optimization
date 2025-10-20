@@ -3,7 +3,7 @@ import math
 import random
 from typing import Dict, Tuple
 
-import networkx as nx
+import networkx as nx  # type: ignore[import-untyped]
 
 from modified_dijkstra import max_load_path
 
@@ -27,9 +27,11 @@ ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
-AR_COEFFICIENT = 0.95  # 自己回帰係数
-NOISE_VARIANCE = 0.05  # ノイズの分散
-MEAN_UTILIZATION = 0.4  # 平均利用率
+BANDWIDTH_UPDATE_INTERVAL = 100  # 何世代ごとに帯域を更新するか
+
+MEAN_UTILIZATION: float = 0.4  # (根拠: ISPの一般的な運用マージン)
+AR_COEFFICIENT: float = 0.95  # (根拠: ネットワークトラフィックの高い自己相関)
+NOISE_VARIANCE: float = 0.000975  # (根拠: 上記2値から逆算した値)
 
 
 class Ant:
@@ -178,24 +180,40 @@ def initialize_ar1_states(graph: nx.Graph) -> Dict[Tuple[int, int], float]:
     """
     edge_states = {}
     for u, v in graph.edges():
-        # u -> v の初期利用率
-        edge_states[(u, v)] = random.uniform(0.3, 0.5)
-        # v -> u の初期利用率
-        edge_states[(v, u)] = random.uniform(0.3, 0.5)
+        # u -> v / v -> u の初期利用率
+        util_uv = random.uniform(0.3, 0.5)
+        util_vu = random.uniform(0.3, 0.5)
+        edge_states[(u, v)] = util_uv
+        edge_states[(v, u)] = util_vu
+
+        # 標準的な可用帯域計算: キャパシティ × (1 - 使用率)
+        capacity = graph[u][v]["original_weight"]
+        avg_util = 0.5 * (util_uv + util_vu)
+        initial_available = int(round(capacity * (1.0 - avg_util)))
+        # 10Mbps刻みに丸め
+        initial_available = ((initial_available + 5) // 10) * 10
+        graph[u][v]["weight"] = initial_available
+        graph[u][v]["local_min_bandwidth"] = initial_available
+        graph[u][v]["local_max_bandwidth"] = initial_available
     return edge_states
 
 
 def update_available_bandwidth_ar1(
-    graph: nx.Graph, edge_states: Dict[Tuple[int, int], float]
+    graph: nx.Graph, edge_states: Dict[Tuple[int, int], float], generation: int
 ) -> bool:
     """
     AR(1)モデルによる帯域変動
+    - BANDWIDTH_UPDATE_INTERVAL世代ごとにのみ更新
     """
+    # 更新間隔でない世代は変化なし
+    if generation % BANDWIDTH_UPDATE_INTERVAL != 0:
+        return False
+
     bandwidth_changed = False
 
     for (u, v), current_utilization in edge_states.items():
         # AR(1)モデル: X(t) = c + φ*X(t-1) + ε(t)
-        noise = random.gauss(0, NOISE_VARIANCE)
+        noise = random.gauss(0, math.sqrt(NOISE_VARIANCE))
 
         new_utilization = (
             (1 - AR_COEFFICIENT) * MEAN_UTILIZATION  # 平均への回帰
@@ -209,13 +227,11 @@ def update_available_bandwidth_ar1(
         # 状態を更新
         edge_states[(u, v)] = new_utilization
 
-        # 可用帯域を計算
+        # 標準的な可用帯域計算: キャパシティ × (1 - 使用率)
         capacity = graph[u][v]["original_weight"]
-        available_bandwidth = int(capacity * (1.0 - new_utilization))
-
-        # 5Mbps単位に丸める
-        available_bandwidth = (available_bandwidth // 10) * 10  # 10Mbps単位に丸める
-        available_bandwidth = max(available_bandwidth, 10)  # 最小10Mbps
+        available_bandwidth = int(round(capacity * (1.0 - new_utilization)))
+        # 10Mbps刻みに丸め
+        available_bandwidth = ((available_bandwidth + 5) // 10) * 10
 
         # 変化があったかチェック
         if graph[u][v]["weight"] != available_bandwidth:
@@ -443,7 +459,7 @@ def grid_graph(num_nodes: int, lb: int = 1, ub: int = 10) -> nx.Graph:
 
 
 # ------------------ メイン処理 ------------------
-if __name__ == "__main__":
+if __name__ == "__main__":  # noqa: C901
     # ===== ログファイルの初期化 =====
     import os
 
@@ -474,8 +490,8 @@ if __name__ == "__main__":
         # AR(1)状態初期化
         edge_states = initialize_ar1_states(graph)
 
-        # 初回のAR(1)帯域更新を適用
-        update_available_bandwidth_ar1(graph, edge_states)
+        # 初回のAR(1)帯域更新を適用（世代0として呼び出し）
+        update_available_bandwidth_ar1(graph, edge_states, 0)
 
         # 動的環境での初期最適解の計算（比較用）
         try:
@@ -493,7 +509,9 @@ if __name__ == "__main__":
 
         for generation in range(GENERATION):
             # === AR(1)モデルによる帯域変動 ===
-            bandwidth_changed = update_available_bandwidth_ar1(graph, edge_states)
+            bandwidth_changed = update_available_bandwidth_ar1(
+                graph, edge_states, generation
+            )
             bandwidth_change_log.append(1 if bandwidth_changed else 0)
             if bandwidth_changed:
                 bandwidth_change_count += 1
