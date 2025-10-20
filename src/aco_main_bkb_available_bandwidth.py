@@ -27,9 +27,9 @@ ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
-AR_COEFFICIENT = 0.9995  # 自己回帰係数（極めて強い自己相関）
-NOISE_VARIANCE = 0.0005  # ノイズの分散（極めて小さな変動）
-MEAN_UTILIZATION = 0.4  # 平均利用率（0.0-1.0）
+AR_COEFFICIENT = 0.95  # 自己回帰係数
+NOISE_VARIANCE = 0.05  # ノイズの分散
+MEAN_UTILIZATION = 0.4  # 平均利用率
 
 
 class Ant:
@@ -175,13 +175,12 @@ def calculate_pheromone_increase(bottleneck_bandwidth: int) -> float:
 def initialize_ar1_states(graph: nx.Graph) -> Dict[Tuple[int, int], float]:
     """
     各エッジのAR(1)モデルの初期利用率を設定する
-    戻り値: (u, v) -> current_utilization の辞書
     """
     edge_states = {}
     for u, v in graph.edges():
-        # u -> v の初期利用率（平均利用率周辺に設定）
+        # u -> v の初期利用率
         edge_states[(u, v)] = random.uniform(0.3, 0.5)
-        # v -> u の初期利用率（平均利用率周辺に設定）
+        # v -> u の初期利用率
         edge_states[(v, u)] = random.uniform(0.3, 0.5)
     return edge_states
 
@@ -190,14 +189,12 @@ def update_available_bandwidth_ar1(
     graph: nx.Graph, edge_states: Dict[Tuple[int, int], float]
 ) -> bool:
     """
-    AR(1)モデルのみを使用した、シンプルで自己相関のある帯域変動
+    AR(1)モデルによる帯域変動
     """
     bandwidth_changed = False
 
     for (u, v), current_utilization in edge_states.items():
-
         # AR(1)モデル: X(t) = c + φ*X(t-1) + ε(t)
-        # c = (1 - φ) * mean_utilization
         noise = random.gauss(0, NOISE_VARIANCE)
 
         new_utilization = (
@@ -212,16 +209,20 @@ def update_available_bandwidth_ar1(
         # 状態を更新
         edge_states[(u, v)] = new_utilization
 
-        # 変化があったかチェック（最適解が変わるレベルの変化のみを検出）
-        if abs(new_utilization - current_utilization) > 0.05:  # 5%以上の変化
-            bandwidth_changed = True
-
         # 可用帯域を計算
         capacity = graph[u][v]["original_weight"]
         available_bandwidth = int(capacity * (1.0 - new_utilization))
 
+        # 5Mbps単位に丸める
+        available_bandwidth = (available_bandwidth // 10) * 10  # 10Mbps単位に丸める
+        available_bandwidth = max(available_bandwidth, 10)  # 最小10Mbps
+
+        # 変化があったかチェック
+        if graph[u][v]["weight"] != available_bandwidth:
+            bandwidth_changed = True
+
         # グラフのweight属性を更新
-        graph[u][v]["weight"] = max(available_bandwidth, 1)  # 最小値1を保証
+        graph[u][v]["weight"] = available_bandwidth
 
         # local_min/max_bandwidth も更新
         graph[u][v]["local_min_bandwidth"] = graph[u][v]["weight"]
@@ -470,10 +471,10 @@ if __name__ == "__main__":
 
         set_pheromone_min_max_by_degree_and_width(graph)
 
-        # AR(1)状態初期化（自己相関のある帯域変動用）
+        # AR(1)状態初期化
         edge_states = initialize_ar1_states(graph)
 
-        # 初回のAR(1)帯域更新を適用（動的環境の初期状態を設定）
+        # 初回のAR(1)帯域更新を適用
         update_available_bandwidth_ar1(graph, edge_states)
 
         # 動的環境での初期最適解の計算（比較用）
@@ -488,11 +489,14 @@ if __name__ == "__main__":
 
         ant_log: list[int] = []
         bandwidth_change_log: list[int] = []  # 帯域変動の記録
+        bandwidth_change_count = 0  # 帯域変動の累計回数
 
         for generation in range(GENERATION):
-            # === AR(1)モデルによる自己相関のある帯域変動 ===
+            # === AR(1)モデルによる帯域変動 ===
             bandwidth_changed = update_available_bandwidth_ar1(graph, edge_states)
             bandwidth_change_log.append(1 if bandwidth_changed else 0)
+            if bandwidth_changed:
+                bandwidth_change_count += 1
 
             # === 最適解の再計算 ===
             current_optimal = calculate_current_optimal_bottleneck(
@@ -503,7 +507,7 @@ if __name__ == "__main__":
                 continue
 
             # 帯域変動があった場合は通知
-            if bandwidth_changed and generation % 100 == 0:
+            if bandwidth_changed and generation % 50 == 0:
                 avg_utilization = sum(edge_states.values()) / len(edge_states)
                 print(
                     f"世代 {generation}: AR(1)帯域変動発生 - "
@@ -537,25 +541,35 @@ if __name__ == "__main__":
                     else 0
                 )
                 avg_utilization = sum(edge_states.values()) / len(edge_states)
-
                 print(
                     f"世代 {generation}: 成功率 = {recent_success_rate:.3f}, "
                     f"帯域変化率 = {bandwidth_change_rate:.3f}, "
                     f"平均利用率 = {avg_utilization:.3f}, "
-                    f"最適値 = {current_optimal}"
+                    f"最適値 = {current_optimal}, "
+                    f"累計変動回数 = {bandwidth_change_count}"
                 )
 
+                # 最適解の詳細出力
+                try:
+                    optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
+                    print(f"  最適経路: {' -> '.join(map(str, optimal_path))}")
+                    print(f"  最適経路のボトルネック帯域: {current_optimal}Mbps")
+                except nx.NetworkXNoPath:
+                    print("  最適経路: 経路なし")
+
         # --- 結果の保存 ---
-        with open(
-            "./simulation_result/log_ant_available_bandwidth.csv", "a", newline=""
-        ) as f:
+        with open(log_filename, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(ant_log)
 
         # 最終成功率の表示
         final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
+        total_bandwidth_changes = sum(bandwidth_change_log)
         print(
-            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - 成功率: {final_success_rate:.3f}"
+            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - "
+            f"成功率: {final_success_rate:.3f}, "
+            f"帯域変動回数: {total_bandwidth_changes}/{GENERATION} "
+            f"({total_bandwidth_changes/GENERATION*100:.1f}%)"
         )
 
     print(f"\n🎉 全{SIMULATIONS}回のシミュレーション完了！")
