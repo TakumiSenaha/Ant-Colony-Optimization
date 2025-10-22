@@ -3,6 +3,7 @@ import math
 import random
 from typing import Dict, Tuple
 
+import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import networkx as nx  # type: ignore[import-untyped]
 
 from modified_dijkstra import max_load_path
@@ -18,8 +19,8 @@ ALPHA = 1.0  # フェロモンの影響度
 BETA = 1.0  # ヒューリスティック情報(帯域幅)の影響度
 EPSILON = 0.1  # ランダムに行動する固定確率
 ANT_NUM = 10  # 世代ごとに探索するアリの数
-GENERATION = 10000  # 総世代数
-SIMULATIONS = 100  # シミュレーションの試行回数
+GENERATION = 1000  # 総世代数
+SIMULATIONS = 1  # シミュレーションの試行回数
 
 # ===== BKB統計モデル（RFC 6298 準拠）=====
 BKB_MEAN_ALPHA = 1 / 8  # SRTTの学習率 (0.125) - RFC 6298標準
@@ -29,7 +30,7 @@ ACHIEVEMENT_BONUS = 1.5  # BKB「平均」を更新した場合の報酬ボー�
 PENALTY_FACTOR = 0.5  # BKB「信頼下限」を下回るエッジへのペナルティ
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
-BANDWIDTH_UPDATE_INTERVAL = 100  # 何世代ごとに帯域を更新するか
+BANDWIDTH_UPDATE_INTERVAL = 1  # 何世代ごとに帯域を更新するか（1=毎世代）
 
 MEAN_UTILIZATION: float = 0.4  # (根拠: ISPの一般的な運用マージン)
 AR_COEFFICIENT: float = 0.95  # (根拠: ネットワークトラフィックの高い自己相関)
@@ -342,9 +343,11 @@ def ant_next_node_const_epsilon(
     graph: nx.Graph,
     ant_log: list[int],
     current_optimal_bottleneck: int,
+    generation_bandwidth_log: list[int],
 ) -> None:
     """
     固定パラメータ(α, β, ε)を用いた、最もシンプルなε-Greedy法で次のノードを決定する。
+    generation_bandwidth_log: 各世代でゴールに到達したアリのボトルネック帯域を記録
     """
     for ant in reversed(ant_list):
         neighbors = list(graph.neighbors(ant.current))
@@ -384,8 +387,10 @@ def ant_next_node_const_epsilon(
 
         # --- ゴール判定 ---
         if ant.current == ant.destination:
+            bottleneck_bw = min(ant.width) if ant.width else 0
             update_pheromone(ant, graph)
-            ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
+            ant_log.append(1 if bottleneck_bw >= current_optimal_bottleneck else 0)
+            generation_bandwidth_log.append(bottleneck_bw)
             ant_list.remove(ant)
         elif len(ant.route) >= TTL:
             ant_log.append(0)
@@ -487,136 +492,285 @@ def grid_graph(num_nodes: int, lb: int = 1, ub: int = 10) -> nx.Graph:
     return graph
 
 
-# ------------------ メイン処理 ------------------
+def plot_bandwidth_comparison(
+    optimal_bandwidth_per_generation: list[int],
+    aco_avg_bandwidth_per_generation: list[float],
+    sim_number: int,
+    start_node: int,
+    goal_node: int,
+) -> None:
+    """
+    Generate a graph comparing optimal solution transition and ACO average bottleneck bandwidth
+
+    Args:
+        optimal_bandwidth_per_generation: Optimal bottleneck bandwidth for each generation
+        aco_avg_bandwidth_per_generation: ACO average bottleneck bandwidth for each generation
+        sim_number: Simulation number
+        start_node: Start node
+        goal_node: Goal node
+    """
+    plt.figure(figsize=(12, 6))
+
+    generations = list(range(len(optimal_bandwidth_per_generation)))
+
+    # Plot optimal solution transition (black solid line)
+    plt.plot(
+        generations,
+        optimal_bandwidth_per_generation,
+        label="Optimal Solution (Modified Dijkstra)",
+        color="black",
+        linewidth=2.5,
+        linestyle="-",
+        marker="o",
+        markersize=3,
+        markerfacecolor="white",
+        markeredgecolor="black",
+        markeredgewidth=1.0,
+        markevery=50,  # Show markers every 50 generations
+    )
+
+    # Plot ACO average bottleneck bandwidth (dark gray dashed line)
+    plt.plot(
+        generations,
+        aco_avg_bandwidth_per_generation,
+        label="ACO Average Bandwidth",
+        color="dimgray",
+        linewidth=2.5,
+        linestyle="--",
+        marker="s",
+        markersize=3,
+        markerfacecolor="dimgray",
+        markeredgecolor="dimgray",
+        markeredgewidth=1.0,
+        markevery=50,  # Show markers every 50 generations
+    )
+
+    plt.xlabel("Generation", fontsize=12)
+    plt.ylabel("Bottleneck Bandwidth (Mbps)", fontsize=12)
+    plt.title(
+        f"Optimal vs ACO Bandwidth (Sim {sim_number}, {start_node}->{goal_node})",
+        fontsize=14,
+    )
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    # Save as SVG
+    output_filename_svg = (
+        f"./simulation_result/bandwidth_comparison_sim{sim_number}_"
+        f"{start_node}to{goal_node}.svg"
+    )
+    plt.savefig(output_filename_svg, format="svg", bbox_inches="tight")
+
+    # Save as PNG (high resolution)
+    output_filename_png = (
+        f"./simulation_result/bandwidth_comparison_sim{sim_number}_"
+        f"{start_node}to{goal_node}.png"
+    )
+    plt.savefig(output_filename_png, format="png", dpi=300, bbox_inches="tight")
+
+    plt.close()
+
+    print(f"Graph saved: {output_filename_svg}, {output_filename_png}")
+
+
+# ------------------ Main Process ------------------
 if __name__ == "__main__":  # noqa: C901
-    # ===== ログファイルの初期化 =====
+    # ===== Initialize log files =====
     import os
 
-    log_filename = "./simulation_result/log_ant_available_bandwidth.csv"
-    if os.path.exists(log_filename):
-        os.remove(log_filename)
-        print(f"既存のログファイル '{log_filename}' を削除しました。")
+    log_filename = "./simulation_result/log_ant_available_bandwidth_ave.csv"
+    log_optimal_bandwidth = "./simulation_result/log_optimal_bandwidth.csv"
+    log_aco_avg_bandwidth = "./simulation_result/log_aco_avg_bandwidth.csv"
 
-    with open(log_filename, "w", newline="") as f:
-        pass  # 空のファイルを作成
-    print(f"ログファイル '{log_filename}' を初期化しました。")
+    for filename in [log_filename, log_optimal_bandwidth, log_aco_avg_bandwidth]:
+        if os.path.exists(filename):
+            os.remove(filename)
+            print(f"Deleted existing log file '{filename}'")
+        with open(filename, "w", newline="") as f:
+            pass  # Create empty file
+        print(f"Initialized log file '{filename}'")
+
+    print("\n" + "=" * 60)
+    print("Simulation Settings:")
+    print(f"  Ants per generation: {ANT_NUM}")
+    print(f"  Number of generations: {GENERATION}")
+    print("  Bandwidth variation: Every generation (AR(1) model)")
+    print(f"  Number of trials: {SIMULATIONS}")
+    print("=" * 60 + "\n")
 
     for sim in range(SIMULATIONS):
-        # ===== シンプルな固定スタート・ゴール設定 =====
+        # ===== Simple fixed start/goal setting =====
         NUM_NODES = 100
         START_NODE = random.randint(0, NUM_NODES - 1)
         GOAL_NODE = random.choice([n for n in range(NUM_NODES) if n != START_NODE])
 
-        print(f"シミュレーション {sim+1}: スタート {START_NODE}, ゴール {GOAL_NODE}")
+        print(
+            f"\n[Simulation {sim+1}/{SIMULATIONS}] Start: {START_NODE}, Goal: {GOAL_NODE}"
+        )
 
-        # グラフはシミュレーションごとに一度だけ生成
+        # Generate graph once per simulation
         # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
         # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
-        graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=10)
+        graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=15)
 
         set_pheromone_min_max_by_degree_and_width(graph)
 
-        # AR(1)状態初期化
+        # Initialize AR(1) state
         edge_states = initialize_ar1_states(graph)
 
-        # 初回のAR(1)帯域更新を適用（世代0として呼び出し）
+        # Apply initial AR(1) bandwidth update (call as generation 0)
         update_available_bandwidth_ar1(graph, edge_states, 0)
 
-        # 動的環境での初期最適解の計算（比較用）
+        # Calculate initial optimal solution in dynamic environment (for comparison)
         try:
             initial_optimal = calculate_current_optimal_bottleneck(
                 graph, START_NODE, GOAL_NODE
             )
-            print(f"動的環境での初期最適ボトルネック帯域: {initial_optimal}")
+            print(f"  Initial optimal bottleneck bandwidth: {initial_optimal}Mbps")
         except (nx.NetworkXNoPath, Exception):
-            print("経路が存在しません。スキップします。")
+            print("  Error: No path exists. Skipping...")
             continue
 
         ant_log: list[int] = []
-        bandwidth_change_log: list[int] = []  # 帯域変動の記録
-        bandwidth_change_count = 0  # 帯域変動の累計回数
+
+        # ===== Logs for graph drawing =====
+        optimal_bandwidth_per_generation: list[int] = (
+            []
+        )  # Optimal solution for each generation
+        aco_avg_bandwidth_per_generation: list[float] = (
+            []
+        )  # ACO average bandwidth for each generation
 
         for generation in range(GENERATION):
-            # === AR(1)モデルによる帯域変動 ===
-            bandwidth_changed = update_available_bandwidth_ar1(
-                graph, edge_states, generation
-            )
-            bandwidth_change_log.append(1 if bandwidth_changed else 0)
-            if bandwidth_changed:
-                bandwidth_change_count += 1
+            # === Bandwidth variation by AR(1) model (executed every generation) ===
+            update_available_bandwidth_ar1(graph, edge_states, generation)
 
-            # === 最適解の再計算 ===
+            # === Recalculate optimal solution ===
             current_optimal = calculate_current_optimal_bottleneck(
                 graph, START_NODE, GOAL_NODE
             )
             if current_optimal == 0:
-                # 経路が存在しない場合はスキップ
+                # Skip if no path exists
                 continue
 
-            # 帯域変動があった場合は通知
-            if bandwidth_changed and generation % 50 == 0:
-                avg_utilization = sum(edge_states.values()) / len(edge_states)
-                print(
-                    f"世代 {generation}: AR(1)帯域変動発生 - "
-                    f"新しい最適値: {current_optimal}, "
-                    f"平均利用率: {avg_utilization:.3f}"
-                )
+            # Record optimal solution
+            optimal_bandwidth_per_generation.append(current_optimal)
 
-            # === アリの探索 ===
+            # Bandwidth varies every generation (detailed logs displayed every 100 generations)
+
+            # === Ant exploration ===
             ants = [
                 Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)
             ]
 
+            # Record bottleneck bandwidth of ants that reached goal in this generation
+            generation_bandwidth_log: list[int] = []
+
             temp_ant_list = list(ants)
             while temp_ant_list:
                 ant_next_node_const_epsilon(
-                    temp_ant_list, graph, ant_log, current_optimal
+                    temp_ant_list,
+                    graph,
+                    ant_log,
+                    current_optimal,
+                    generation_bandwidth_log,
                 )
 
-            # フェロモンの揮発
+            # Calculate average bottleneck bandwidth for this generation
+            if generation_bandwidth_log:
+                avg_bandwidth = sum(generation_bandwidth_log) / len(
+                    generation_bandwidth_log
+                )
+            else:
+                # Record 0 if no ants reached the goal
+                avg_bandwidth = 0.0
+            aco_avg_bandwidth_per_generation.append(avg_bandwidth)
+
+            # Pheromone evaporation
             volatilize_by_width(graph)
 
-            # 進捗表示
+            # Progress display (every 100 generations)
             if generation % 100 == 0:
                 recent_success_rate = (
                     sum(ant_log[-100:]) / min(len(ant_log), 100) if ant_log else 0
                 )
-                bandwidth_change_rate = (
-                    sum(bandwidth_change_log[-100:])
-                    / min(len(bandwidth_change_log), 100)
-                    if bandwidth_change_log
-                    else 0
-                )
                 avg_utilization = sum(edge_states.values()) / len(edge_states)
+
+                # ACO average bandwidth for recent 100 generations
+                recent_aco_avg = 0.0
+                if len(aco_avg_bandwidth_per_generation) >= 100:
+                    recent_aco_avg = sum(aco_avg_bandwidth_per_generation[-100:]) / 100
+                elif aco_avg_bandwidth_per_generation:
+                    recent_aco_avg = sum(aco_avg_bandwidth_per_generation) / len(
+                        aco_avg_bandwidth_per_generation
+                    )
+
                 print(
-                    f"世代 {generation}: 成功率 = {recent_success_rate:.3f}, "
-                    f"帯域変化率 = {bandwidth_change_rate:.3f}, "
-                    f"平均利用率 = {avg_utilization:.3f}, "
-                    f"最適値 = {current_optimal}, "
-                    f"累計変動回数 = {bandwidth_change_count}"
+                    f"Gen {generation}: Success rate = {recent_success_rate:.3f}, "
+                    f"ACO avg BW = {recent_aco_avg:.1f}Mbps, "
+                    f"Current optimal = {current_optimal}Mbps, "
+                    f"Avg utilization = {avg_utilization:.3f}"
                 )
 
-                # 最適解の詳細出力
+                # Detailed output of optimal solution
                 try:
                     optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
-                    print(f"  最適経路: {' -> '.join(map(str, optimal_path))}")
-                    print(f"  最適経路のボトルネック帯域: {current_optimal}Mbps")
+                    print(
+                        f"    -> Optimal path: {' -> '.join(map(str, optimal_path[:8]))}..."
+                    )
                 except nx.NetworkXNoPath:
-                    print("  最適経路: 経路なし")
+                    print("    -> Optimal path: No path")
 
-        # --- 結果の保存 ---
+        # --- Save results ---
+        # Success rate log
         with open(log_filename, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(ant_log)
 
-        # 最終成功率の表示
-        final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
-        total_bandwidth_changes = sum(bandwidth_change_log)
-        print(
-            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - "
-            f"成功率: {final_success_rate:.3f}, "
-            f"帯域変動回数: {total_bandwidth_changes}/{GENERATION} "
-            f"({total_bandwidth_changes/GENERATION*100:.1f}%)"
+        # Optimal solution bandwidth log
+        with open(log_optimal_bandwidth, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(optimal_bandwidth_per_generation)
+
+        # ACO average bandwidth log
+        with open(log_aco_avg_bandwidth, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(aco_avg_bandwidth_per_generation)
+
+        # --- Generate graph ---
+        plot_bandwidth_comparison(
+            optimal_bandwidth_per_generation,
+            aco_avg_bandwidth_per_generation,
+            sim + 1,
+            START_NODE,
+            GOAL_NODE,
         )
 
-    print(f"\n🎉 全{SIMULATIONS}回のシミュレーション完了！")
+        # Display final success rate
+        final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
+        final_aco_avg = (
+            sum(aco_avg_bandwidth_per_generation)
+            / len(aco_avg_bandwidth_per_generation)
+            if aco_avg_bandwidth_per_generation
+            else 0
+        )
+        final_optimal_avg = (
+            sum(optimal_bandwidth_per_generation)
+            / len(optimal_bandwidth_per_generation)
+            if optimal_bandwidth_per_generation
+            else 0
+        )
+        achievement_rate = (
+            (final_aco_avg / final_optimal_avg * 100) if final_optimal_avg > 0 else 0
+        )
+
+        print(
+            f"Simulation {sim+1}/{SIMULATIONS} completed - "
+            f"Success rate: {final_success_rate:.3f}, "
+            f"ACO avg: {final_aco_avg:.1f}Mbps, "
+            f"Optimal avg: {final_optimal_avg:.1f}Mbps, "
+            f"Achievement: {achievement_rate:.1f}%"
+        )
+
+    print(f"\nAll {SIMULATIONS} simulations completed!")
