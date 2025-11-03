@@ -1,10 +1,11 @@
 import csv
-import math
 import random
 
 import networkx as nx
 
+from bkb_learning import evaporate_bkb_values
 from modified_dijkstra import max_load_path
+from pheromone_update import update_pheromone, volatilize_by_width
 
 # ===== シミュレーションパラメータ =====
 V = 0.98  # フェロモン揮発量
@@ -25,6 +26,10 @@ PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
 ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
+# ===== キャッシュ管理パラメータ =====
+# キャッシュの生存期間は総世代数と同じに設定(キャッシュは消滅しないシナリオ)
+CACHE_LIFETIME = GENERATION
+
 
 class Ant:
     def __init__(
@@ -36,11 +41,15 @@ class Ant:
         self.width = width
 
     def __repr__(self):
-        return f"Ant(current={self.current}, destinations={self.destinations}, route={self.route}, width={self.width})"
+        return (
+            f"Ant(current={self.current}, destinations={self.destinations}, "
+            f"route={self.route}, width={self.width})"
+        )
 
 
 def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
-    """ノードの隣接数と帯域幅に基づいてフェロモンの最小値と最大値を双方向に設定"""
+    """ノードの隣接数と帯域幅に基づいて
+    フェロモンの最小値と最大値を双方向に設定"""
     for u, v in graph.edges():
         # ノードuとvの隣接ノード数を取得
         degree_u = len(list(graph.neighbors(u)))
@@ -60,161 +69,17 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 
 VOLATILIZATION_MODE = 3
 
-
-def volatilize_by_width(graph: nx.Graph) -> None:
-    """
-    各エッジのフェロモン値を双方向で揮発させる
-    - VOLATILIZATION_MODE が 0 の場合: 固定の揮発率を適用
-    - VOLATILIZATION_MODE が 1 の場合: エッジのlocal_min/max帯域幅を基準に揮発量を調整
-    - VOLATILIZATION_MODE が 2 の場合: エッジの帯域幅の平均/分散を基準に揮発量を計算
-    - VOLATILIZATION_MODE が 3 の場合: ノードのbest_known_bottleneck(BKB)に基づきペナルティを適用
-    """
-    for u, v in graph.edges():
-        # u → v の揮発計算
-        _apply_volatilization(graph, u, v)
-        # v → u の揮発計算
-        _apply_volatilization(graph, v, u)
-
-    for node in graph.nodes():
-        if "best_known_bottleneck" in graph.nodes[node]:
-            graph.nodes[node]["best_known_bottleneck"] *= BKB_EVAPORATION_RATE
-
-
-def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
-    """
-    指定された方向のエッジ (u → v) に対して揮発処理を適用
-    """
-    # 現在のフェロモン値と帯域幅を取得
-    current_pheromone = graph[u][v]["pheromone"]
-    weight_uv = graph[u][v]["weight"]
-
-    # エッジのローカル最小・最大帯域幅を取得
-    local_min_bandwidth = graph[u][v]["local_min_bandwidth"]
-    local_max_bandwidth = graph[u][v]["local_max_bandwidth"]
-
-    # 揮発率の計算
-    if VOLATILIZATION_MODE == 0:
-        # --- 既存の揮発式 ---
-        # 最大帯域幅100Mbpsを基準に固定値で揮発率を計算
-        rate = V
-
-    # 0.99に設定する方が，最適解既知でないときに如実に良くなる．
-    elif VOLATILIZATION_MODE == 1:
-        # --- 帯域幅の最小値・最大値を基準に揮発量を調整 ---
-        # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
-        if local_max_bandwidth == local_min_bandwidth:
-            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            rate = 0.98
-        else:
-            # 使用済みエッジの場合：帯域幅の相対位置を基準に揮発量を調整
-            normalized_position = (weight_uv - local_min_bandwidth) / max(
-                1, (local_max_bandwidth - local_min_bandwidth)
-            )
-            rate = 0.98 * normalized_position
-
-    # FIXME: OverflowError: cannot convert float infinity to integer
-    elif VOLATILIZATION_MODE == 2:
-        # --- 平均・分散を基準に揮発量を調整 ---
-        # 平均帯域幅と標準偏差を計算し、それを基に揮発率を算出
-        if local_max_bandwidth == local_min_bandwidth:
-            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            avg_bandwidth = weight_uv
-            std_dev = 1  # デフォルト値
-        else:
-            # 使用済みエッジの場合
-            avg_bandwidth = 0.5 * (local_min_bandwidth + local_max_bandwidth)
-            std_dev = max(abs(local_max_bandwidth - avg_bandwidth), 1)
-
-        # 平均・分散に基づいて揮発率を計算
-        gamma = 1.0  # 減衰率の調整パラメータ
-        rate = math.exp(-gamma * (avg_bandwidth - weight_uv) / std_dev)
-
-    elif VOLATILIZATION_MODE == 3:
-        # --- ノードのBKBに基づきペナルティを適用 ---
-        # 基本の残存率を設定
-        rate = V
-
-        # 行き先ノードvが知っている最良のボトルネック帯域(BKB)を取得
-        bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-
-        # このエッジの帯域幅が、行き先ノードのBKBより低い場合、ペナルティを課す
-        if weight_uv < bkb_v:
-            rate *= PENALTY_FACTOR  # 残存率を下げることで、揮発を促進する
-
-    else:
-        raise ValueError("Invalid VOLATILIZATION_MODE. Choose 0, 1, 2 or 3.")
-
-    # フェロモン値を計算して更新
-    new_pheromone = max(
-        math.floor(current_pheromone * rate), graph[u][v]["min_pheromone"]
-    )
-    graph[u][v]["pheromone"] = new_pheromone
-
-    # --- ログを出力 ---
-    # print(f"Edge ({u} → {v})")
-    # print(f"  計算されたレート: {rate:.4f}")
-    # print(f"  weight (エッジ帯域幅): {weight_uv}")
-    # print(f"  local_min_bandwidth: {local_min_bandwidth}")
-    # print(f"  local_max_bandwidth: {local_max_bandwidth}")
-    # print(f"  新しいフェロモン値: {current_pheromone - new_pheromone}\n")
-
-
-def calculate_pheromone_increase(bottleneck_bandwidth: int) -> float:
-    """
-    フェロモン付加量を計算する。
-    """
-    # ボトルネック帯域が大きいほど、指数的に報酬を増やす
-    # ただし、過大にならないよう2乗程度に抑える
-    return float(bottleneck_bandwidth * 10)
-
-
 # ===== 新しいパラメータ（功績ボーナス）=====
 ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合のフェロモン増加ボーナス係数
 
 
-def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
-    """
-    Antがゴールに到達したとき、経路上のフェロモンとノードのBKBを更新する。
-    ★★★ フェロモンは経路上のエッジに「双方向」で付加する ★★★
-    """
-    bottleneck_bn = min(ant.width) if ant.width else 0
-    if bottleneck_bn == 0:
-        return
-
-    # --- 経路上の各エッジにフェロモンを付加 ---
-    for i in range(1, len(ant.route)):
-        u, v = ant.route[i - 1], ant.route[i]
-
-        # ステップ1：基本のフェロモン増加量を計算
-        pheromone_increase = calculate_pheromone_increase(bottleneck_bn)
-
-        # ステップ2：功績ボーナスの判定
-        # この経路によって、行き先ノードvのBKBが更新されるか？
-        current_bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-        if bottleneck_bn > current_bkb_v:
-            pheromone_increase *= ACHIEVEMENT_BONUS
-
-        # ===== ★★★ フェロモンを双方向に付加 ★★★ =====
-        # 順方向 (u -> v) のフェロモンを更新
-        max_pheromone_uv = graph.edges[u, v].get("max_pheromone", MAX_F)
-        graph.edges[u, v]["pheromone"] = min(
-            graph.edges[u, v]["pheromone"] + pheromone_increase,
-            max_pheromone_uv,
-        )
-
-        # 逆方向 (v -> u) のフェロモンも更新
-        max_pheromone_vu = graph.edges[v, u].get("max_pheromone", MAX_F)
-        graph.edges[v, u]["pheromone"] = min(
-            graph.edges[v, u]["pheromone"] + pheromone_increase,
-            max_pheromone_vu,
-        )
-        # =======================================================
-
-    # --- BKBの更新（フェロモン付加の後に行う）---
-    # 経路上の各ノードのBKBを更新
-    for node in ant.route:
-        current_bkb = graph.nodes[node].get("best_known_bottleneck", 0)
-        graph.nodes[node]["best_known_bottleneck"] = max(current_bkb, bottleneck_bn)
+# BKB更新関数のラッパー（単純なmax手法）
+def _bkb_update_simple_max(
+    graph: nx.Graph, node: int, bottleneck: float, generation: int
+) -> None:
+    """単純なmax手法でBKBを更新"""
+    current_bkb = graph.nodes[node].get("best_known_bottleneck", 0)
+    graph.nodes[node]["best_known_bottleneck"] = max(current_bkb, bottleneck)
 
 
 # ===== 定数ε-Greedy法 =====
@@ -223,6 +88,7 @@ def ant_next_node_const_epsilon(
     graph: nx.Graph,
     ant_log: list[int],
     current_optimal_bottleneck: int,
+    generation: int,
 ) -> None:
     """
     固定パラメータ(α, β, ε)を用いた、最もシンプルなε-Greedy法で次のノードを決定する。
@@ -265,8 +131,17 @@ def ant_next_node_const_epsilon(
 
         # --- ゴール判定 ---
         if ant.current in ant.destinations:
-            update_pheromone(ant, graph)
-            # ant_log.append(min(ant.width))
+            # ★★★ 共通モジュールを使用したフェロモン更新 ★★★
+            update_pheromone(
+                ant,
+                graph,
+                generation,
+                max_pheromone=MAX_F,
+                achievement_bonus=ACHIEVEMENT_BONUS,
+                bkb_update_func=_bkb_update_simple_max,
+                pheromone_increase_func=None,  # シンプル版を使用
+                observe_bandwidth_func=None,  # 帯域監視は未使用
+            )
             ant_log.append(1 if min(ant.width) >= current_optimal_bottleneck else 0)
             ant_list.remove(ant)
         elif len(ant.route) >= TTL:
@@ -375,7 +250,7 @@ if __name__ == "__main__":
         pass  # 空のファイルを作成
     print(f"ログファイル '{log_filename}' を初期化しました。")
 
-    for sim in range(1):
+    for sim in range(100):
         # グラフはシミュレーションごとに一度だけ生成
         # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
         # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
@@ -388,10 +263,13 @@ if __name__ == "__main__":
         # スタートノードごとに最適経路・ボトルネック値をキャッシュ
         optimal_bottleneck_dict = {}
 
-        # ===== ★★★ 動的なゴール管理 ★★★ =====
+        # ===== ★★★ 動的なゴール管理（キャッシュ消滅機能付き）★★★ =====
         all_nodes = list(range(NUM_NODES))
         initial_provider_node = random.choice(all_nodes)
         goal_nodes = {initial_provider_node}  # setでゴールを管理
+
+        # キャッシュの生存期間を管理する辞書 {node_id: added_generation}
+        cache_generation_dict = {initial_provider_node: 0}  # 初期ゴールは世代0で追加
 
         start_node_candidates = [n for n in all_nodes if n != initial_provider_node]
         start_node_list = random.sample(start_node_candidates, 10)
@@ -404,13 +282,31 @@ if __name__ == "__main__":
             if phase >= len(start_node_list):
                 break
 
-            # ===== スタート地点切り替えと動的ゴール追加処理 =====
+            # ===== スタート地点切り替えと動的ゴール追加・削除処理 =====
             if generation % SWITCH_INTERVAL == 0:
+                # 新しいキャッシュを追加する前に、古いキャッシュを削除
+                if generation > 0:  # 最初の世代では削除しない
+                    expired_caches = []
+                    for cache_node, added_gen in cache_generation_dict.items():
+                        if generation - added_gen >= CACHE_LIFETIME:
+                            expired_caches.append(cache_node)
+
+                    # 期限切れのキャッシュを削除（初期ゴールは削除しない）
+                    for cache_node in expired_caches:
+                        if cache_node != initial_provider_node:
+                            goal_nodes.discard(cache_node)
+                            del cache_generation_dict[cache_node]
+                            print(
+                                f"キャッシュ削除: ノード {cache_node} (世代 {generation} で期限切れ)"
+                            )
+
+                # 新しいキャッシュを追加
                 if previous_start is not None:
                     print(
-                        f"キャッシュ追加: ノード {previous_start} をゴール群に追加します。"
+                        f"キャッシュ追加: ノード {previous_start} をゴール群に追加します。(世代 {generation})"
                     )
                     goal_nodes.add(previous_start)
+                    cache_generation_dict[previous_start] = generation  # 追加世代を記録
 
                 current_start = start_node_list[phase]
                 if current_start in goal_nodes:
@@ -426,6 +322,8 @@ if __name__ == "__main__":
                 print(
                     f"\n--- 世代 {generation}: スタート {current_start}, ゴール群 {goal_nodes} ---"
                 )
+                print(f"現在のキャッシュ状態: {cache_generation_dict}")
+                print(f"アクティブなキャッシュ数: {len(goal_nodes)}")
 
                 for node in graph.nodes():
                     graph.nodes[node]["best_known_bottleneck"] = 0
@@ -463,11 +361,24 @@ if __name__ == "__main__":
             temp_ant_list = list(ants)
             while temp_ant_list:
                 ant_next_node_const_epsilon(
-                    temp_ant_list, graph, ant_log, current_optimal_bottleneck
+                    temp_ant_list,
+                    graph,
+                    ant_log,
+                    current_optimal_bottleneck,
+                    generation,
                 )
 
             # フェロモンの揮発
-            volatilize_by_width(graph)
+            # ★★★ 共通モジュールを使用したフェロモン揮発 ★★★
+            volatilize_by_width(
+                graph,
+                volatilization_mode=VOLATILIZATION_MODE,
+                base_evaporation_rate=V,
+                penalty_factor=PENALTY_FACTOR,
+                adaptive_rate_func=None,  # 帯域変動パターンに基づく適応的揮発は未使用
+            )
+            # BKB値の揮発処理（共通モジュール使用）
+            evaporate_bkb_values(graph, BKB_EVAPORATION_RATE, use_int_cast=False)
 
         # --- 結果の保存 ---
         with open("./simulation_result/log_ant.csv", "a", newline="") as f:
