@@ -1,15 +1,32 @@
 import csv
-import math
 import random
-from typing import Dict, Tuple
 
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import networkx as nx  # type: ignore[import-untyped]
 
+from bandwidth_fluctuation_config import (
+    BANDWIDTH_UPDATE_INTERVAL,
+    initialize_ar1_states,
+    print_fluctuation_settings,
+    select_fluctuating_edges,
+    update_available_bandwidth_ar1,
+)
+from bkb_learning import (
+    evaporate_bkb_values,
+    initialize_graph_nodes_for_simple_bkb,
+    update_node_bkb_time_window_max,  # ★リングバッファ学習を追加★
+)
 from modified_dijkstra import max_load_path
+from pheromone_update import (
+    calculate_current_optimal_bottleneck,
+    update_pheromone,
+    volatilize_by_width,
+)
 
 # ===== シミュレーションパラメータ =====
-V = 0.98  # フェロモン揮発量
+V = 0.98  # フェロモン揮発率（残存率）
+# V = 0.95  # より強い揮発（動的環境向け：古い経路を素早く忘却）
+# V = 0.90  # 非常に強い揮発（高変動環境向け）
 MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
 TTL = 100  # AntのTime to Live
@@ -22,19 +39,14 @@ ANT_NUM = 10  # 世代ごとに探索するアリの数
 GENERATION = 1000  # 総世代数
 SIMULATIONS = 1  # シミュレーションの試行回数
 
-# ===== BKB統計モデル（RFC 6298 準拠）=====
-BKB_MEAN_ALPHA = 1 / 8  # SRTTの学習率 (0.125) - RFC 6298標準
-BKB_VAR_BETA = 1 / 4  # RTTVARの学習率 (0.25) - RFC 6298標準
-BKB_CONFIDENCE_K = 1.0  # 信頼区間幅の係数（平均 - K*分散）
-ACHIEVEMENT_BONUS = 1.5  # BKB「平均」を更新した場合の報酬ボーナス係数
-PENALTY_FACTOR = 0.5  # BKB「信頼下限」を下回るエッジへのペナルティ
+# ===== BKBモデル用パラメータ（リングバッファサイズ1）=====
+TIME_WINDOW_SIZE = 1  # リングバッファサイズ（直近1個の観測値のみ記憶）
+BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率（リングバッファサイズ1では実質効果なし）
+ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
+PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
-BANDWIDTH_UPDATE_INTERVAL = 1  # 何世代ごとに帯域を更新するか（1=毎世代）
-
-MEAN_UTILIZATION: float = 0.4  # (根拠: ISPの一般的な運用マージン)
-AR_COEFFICIENT: float = 0.95  # (根拠: ネットワークトラフィックの高い自己相関)
-NOISE_VARIANCE: float = 0.000975  # (根拠: 上記2値から逆算した値)
+# 帯域変動パラメータは bandwidth_fluctuation_config.py で管理
 
 
 class Ant:
@@ -78,265 +90,6 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 VOLATILIZATION_MODE = 3
 
 
-def volatilize_by_width(graph: nx.Graph) -> None:
-    """
-    各エッジのフェロモン値を双方向で揮発させる
-    - VOLATILIZATION_MODE が 0 の場合: 固定の揮発率を適用
-    - VOLATILIZATION_MODE が 1 の場合: エッジのlocal_min/max帯域幅を基準に揮発量を調整
-    - VOLATILIZATION_MODE が 2 の場合: エッジの帯域幅の平均/分散を基準に揮発量を計算
-    - VOLATILIZATION_MODE が 3 の場合: ノードのBKB統計（平均・分散）に基づきペナルティを適用
-
-    ★BKBの「忘却」はEMA（指数移動平均）が担うため、
-    　従来のBKB_EVAPORATION_RATEによる揮発処理は不要となり、削除。
-    """
-    for u, v in graph.edges():
-        # u → v の揮発計算
-        _apply_volatilization(graph, u, v)
-        # v → u の揮発計算
-        _apply_volatilization(graph, v, u)
-
-
-def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
-    """
-    指定された方向のエッジ (u → v) に対して揮発処理を適用
-    """
-    # 現在のフェロモン値と帯域幅を取得
-    current_pheromone = graph[u][v]["pheromone"]
-    weight_uv = graph[u][v]["weight"]
-
-    # エッジのローカル最小・最大帯域幅を取得
-    local_min_bandwidth = graph[u][v]["local_min_bandwidth"]
-    local_max_bandwidth = graph[u][v]["local_max_bandwidth"]
-
-    # 揮発率の計算
-    if VOLATILIZATION_MODE == 0:
-        # --- 既存の揮発式 ---
-        # 最大帯域幅100Mbpsを基準に固定値で揮発率を計算
-        rate = V
-
-    # 0.99に設定する方が，最適解既知でないときに如実に良くなる．
-    elif VOLATILIZATION_MODE == 1:
-        # --- 帯域幅の最小値・最大値を基準に揮発量を調整 ---
-        # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
-        if local_max_bandwidth == local_min_bandwidth:
-            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            rate = 0.98
-        else:
-            # 使用済みエッジの場合：帯域幅の相対位置を基準に揮発量を調整
-            normalized_position = (weight_uv - local_min_bandwidth) / max(
-                1, (local_max_bandwidth - local_min_bandwidth)
-            )
-            rate = 0.98 * normalized_position
-
-    # FIXME: OverflowError: cannot convert float infinity to integer
-    elif VOLATILIZATION_MODE == 2:
-        # --- 平均・分散を基準に揮発量を調整 ---
-        # 平均帯域幅と標準偏差を計算し、それを基に揮発率を算出
-        if local_max_bandwidth == local_min_bandwidth:
-            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            avg_bandwidth = weight_uv
-            std_dev = 1  # デフォルト値
-        else:
-            # 使用済みエッジの場合
-            avg_bandwidth = 0.5 * (local_min_bandwidth + local_max_bandwidth)
-            std_dev = max(abs(local_max_bandwidth - avg_bandwidth), 1)
-
-        # 平均・分散に基づいて揮発率を計算
-        gamma = 1.0  # 減衰率の調整パラメータ
-        rate = math.exp(-gamma * (avg_bandwidth - weight_uv) / std_dev)
-
-    elif VOLATILIZATION_MODE == 3:
-        # --- ノードのBKB統計（平均・分散）に基づきペナルティを適用 ---
-        # 基本の残存率を設定
-        rate = V
-
-        # 行き先ノードvのBKB統計（平均と分散）を取得
-        bkb_mean = graph.nodes[v].get("ema_bkb")
-        bkb_var = graph.nodes[v].get("ema_bkb_var", 0.0)
-
-        if bkb_mean is None:
-            # まだ学習していないノードはペナルティ対象外
-            bkb_mean, bkb_var = 0.0, 0.0
-
-        # 信頼区間の下限（平均 - K * 分散）を計算
-        lower_bound = bkb_mean - BKB_CONFIDENCE_K * bkb_var
-
-        # このエッジの帯域幅が、信頼できる期待値（下限）より低い場合、ペナルティを課す
-        if weight_uv < lower_bound:
-            rate *= PENALTY_FACTOR  # 残存率を下げることで、揮発を促進する
-
-    else:
-        raise ValueError("Invalid VOLATILIZATION_MODE. Choose 0, 1, 2 or 3.")
-
-    # フェロモン値を計算して更新
-    new_pheromone = max(
-        math.floor(current_pheromone * rate), graph[u][v]["min_pheromone"]
-    )
-    graph[u][v]["pheromone"] = new_pheromone
-
-
-def calculate_pheromone_increase(bottleneck_bandwidth: int) -> float:
-    """
-    フェロモン付加量を計算する。
-    """
-    # ボトルネック帯域が大きいほど、指数的に報酬を増やす
-    # ただし、過大にならないよう2乗程度に抑える
-    return float(bottleneck_bandwidth * 10)
-
-
-def initialize_ar1_states(graph: nx.Graph) -> Dict[Tuple[int, int], float]:
-    """
-    各エッジのAR(1)モデルの初期利用率を設定する
-    """
-    edge_states = {}
-    for u, v in graph.edges():
-        # u -> v / v -> u の初期利用率
-        util_uv = random.uniform(0.3, 0.5)
-        util_vu = random.uniform(0.3, 0.5)
-        edge_states[(u, v)] = util_uv
-        edge_states[(v, u)] = util_vu
-
-        # 標準的な可用帯域計算: キャパシティ × (1 - 使用率)
-        capacity = graph[u][v]["original_weight"]
-        avg_util = 0.5 * (util_uv + util_vu)
-        initial_available = int(round(capacity * (1.0 - avg_util)))
-        # 10Mbps刻みに丸め
-        initial_available = ((initial_available + 5) // 10) * 10
-        graph[u][v]["weight"] = initial_available
-        graph[u][v]["local_min_bandwidth"] = initial_available
-        graph[u][v]["local_max_bandwidth"] = initial_available
-    return edge_states
-
-
-def update_available_bandwidth_ar1(
-    graph: nx.Graph, edge_states: Dict[Tuple[int, int], float], generation: int
-) -> bool:
-    """
-    AR(1)モデルによる帯域変動
-    - BANDWIDTH_UPDATE_INTERVAL世代ごとにのみ更新
-    """
-    # 更新間隔でない世代は変化なし
-    if generation % BANDWIDTH_UPDATE_INTERVAL != 0:
-        return False
-
-    bandwidth_changed = False
-
-    for (u, v), current_utilization in edge_states.items():
-        # AR(1)モデル: X(t) = c + φ*X(t-1) + ε(t)
-        noise = random.gauss(0, math.sqrt(NOISE_VARIANCE))
-
-        new_utilization = (
-            (1 - AR_COEFFICIENT) * MEAN_UTILIZATION  # 平均への回帰
-            + AR_COEFFICIENT * current_utilization  # 過去の値への依存
-            + noise  # ランダムノイズ
-        )
-
-        # 利用率を0.05 - 0.95の範囲にクリップ
-        new_utilization = max(0.05, min(0.95, new_utilization))
-
-        # 状態を更新
-        edge_states[(u, v)] = new_utilization
-
-        # 標準的な可用帯域計算: キャパシティ × (1 - 使用率)
-        capacity = graph[u][v]["original_weight"]
-        available_bandwidth = int(round(capacity * (1.0 - new_utilization)))
-        # 10Mbps刻みに丸め
-        available_bandwidth = ((available_bandwidth + 5) // 10) * 10
-
-        # 変化があったかチェック
-        if graph[u][v]["weight"] != available_bandwidth:
-            bandwidth_changed = True
-
-        # グラフのweight属性を更新
-        graph[u][v]["weight"] = available_bandwidth
-
-        # local_min/max_bandwidth も更新
-        graph[u][v]["local_min_bandwidth"] = graph[u][v]["weight"]
-        graph[u][v]["local_max_bandwidth"] = graph[u][v]["weight"]
-
-    return bandwidth_changed
-
-
-def calculate_current_optimal_bottleneck(
-    graph: nx.Graph, start_node: int, goal_node: int
-) -> int:
-    """
-    現在のネットワーク状態での最適ボトルネック帯域を計算
-    """
-    try:
-        optimal_path = max_load_path(graph, start_node, goal_node)
-        optimal_bottleneck = min(
-            graph.edges[u, v]["weight"]
-            for u, v in zip(optimal_path[:-1], optimal_path[1:])
-        )
-        return optimal_bottleneck
-    except nx.NetworkXNoPath:
-        return 0
-
-
-def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
-    """
-    ★★★ RFC 6298準拠の統計的BKB学習モデル ★★★
-    Antがゴールした時、経路上のBKB統計情報（平均・分散）を更新し、
-    フェロモンを付加する。
-    """
-    bottleneck_bn = min(ant.width) if ant.width else 0
-    if bottleneck_bn == 0:
-        return
-
-    # --- ステップ1: ノード側のBKB統計（平均・分散）の更新（RFC 6298 準拠）---
-    for node in ant.route:
-        mean_prev = graph.nodes[node].get("ema_bkb")
-        var_prev = graph.nodes[node].get("ema_bkb_var", 0.0)
-
-        if mean_prev is None:
-            # 最初のサンプル (Karn's Algorithm)
-            mean_new = float(bottleneck_bn)
-            var_new = float(bottleneck_bn) / 2.0  # TCPのRTO初期値計算に準拠
-        else:
-            # 2回目以降 (RFC 6298)
-            # 信頼度（ばらつき）の更新 (RTTVARの計算)
-            deviation = abs(bottleneck_bn - mean_prev)
-            var_new = (1 - BKB_VAR_BETA) * var_prev + BKB_VAR_BETA * deviation
-            # 平均値の更新 (SRTTの計算)
-            mean_new = (1 - BKB_MEAN_ALPHA) * mean_prev + BKB_MEAN_ALPHA * bottleneck_bn
-
-        graph.nodes[node]["ema_bkb"] = mean_new
-        graph.nodes[node]["ema_bkb_var"] = var_new
-
-        # 互換維持：古いBKB最大値も（平均値で）更新しておく
-        graph.nodes[node]["best_known_bottleneck"] = max(
-            graph.nodes[node].get("best_known_bottleneck", 0), int(mean_new)
-        )
-
-    # --- ステップ2: フェロモン付加（功績ボーナスは「平均」基準に変更）---
-    for i in range(1, len(ant.route)):
-        u, v = ant.route[i - 1], ant.route[i]
-
-        pheromone_increase = calculate_pheromone_increase(bottleneck_bn)
-
-        # ボーナス判定: アントの帯域が、行き先ノードvの「平均BKB」より大きいか？
-        bkb_v_mean = graph.nodes[v].get("ema_bkb") or 0.0
-        if bottleneck_bn > bkb_v_mean:
-            pheromone_increase *= ACHIEVEMENT_BONUS
-
-        # ===== ★★★ フェロモンを双方向に付加 ★★★ =====
-        # 順方向 (u -> v) のフェロモンを更新
-        max_pheromone_uv = graph.edges[u, v].get("max_pheromone", MAX_F)
-        graph.edges[u, v]["pheromone"] = min(
-            graph.edges[u, v]["pheromone"] + pheromone_increase,
-            max_pheromone_uv,
-        )
-
-        # 逆方向 (v -> u) のフェロモンも更新
-        max_pheromone_vu = graph.edges[v, u].get("max_pheromone", MAX_F)
-        graph.edges[v, u]["pheromone"] = min(
-            graph.edges[v, u]["pheromone"] + pheromone_increase,
-            max_pheromone_vu,
-        )
-        # =======================================================
-
-
 # ===== 定数ε-Greedy法 =====
 def ant_next_node_const_epsilon(
     ant_list: list[Ant],
@@ -344,6 +97,7 @@ def ant_next_node_const_epsilon(
     ant_log: list[int],
     current_optimal_bottleneck: int,
     generation_bandwidth_log: list[int],
+    generation: int,
 ) -> None:
     """
     固定パラメータ(α, β, ε)を用いた、最もシンプルなε-Greedy法で次のノードを決定する。
@@ -388,7 +142,19 @@ def ant_next_node_const_epsilon(
         # --- ゴール判定 ---
         if ant.current == ant.destination:
             bottleneck_bw = min(ant.width) if ant.width else 0
-            update_pheromone(ant, graph)
+            # ★★★ 共通モジュールを使用したフェロモン更新 ★★★
+            update_pheromone(
+                ant,
+                graph,
+                generation,
+                max_pheromone=MAX_F,
+                achievement_bonus=ACHIEVEMENT_BONUS,
+                bkb_update_func=lambda g, n, b, gen: update_node_bkb_time_window_max(
+                    g, n, b, gen, time_window_size=TIME_WINDOW_SIZE
+                ),
+                pheromone_increase_func=None,  # シンプル版を使用
+                observe_bandwidth_func=None,  # 帯域監視は未使用
+            )
             ant_log.append(1 if bottleneck_bw >= current_optimal_bottleneck else 0)
             generation_bandwidth_log.append(bottleneck_bw)
             ant_list.remove(ant)
@@ -405,11 +171,8 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
     """
     graph = nx.barabasi_albert_graph(num_nodes, num_edges)
 
-    # ===== BKB統計モデル用の属性を初期化 =====
-    for node in graph.nodes():
-        graph.nodes[node]["ema_bkb"] = None  # 平均（SRTT相当）
-        graph.nodes[node]["ema_bkb_var"] = 0.0  # 分散（RTTVAR相当）
-        graph.nodes[node]["best_known_bottleneck"] = 0  # 互換維持用
+    # ===== BKBモデル用の属性を初期化（リングバッファ学習）=====
+    initialize_graph_nodes_for_simple_bkb(graph)
     # =======================================================================
 
     for u, v in graph.edges():
@@ -444,10 +207,8 @@ def er_graph(
     """
     graph = nx.erdos_renyi_graph(num_nodes, edge_prob)
 
-    for node in graph.nodes():
-        graph.nodes[node]["ema_bkb"] = None  # 平均（SRTT相当）
-        graph.nodes[node]["ema_bkb_var"] = 0.0  # 分散（RTTVAR相当）
-        graph.nodes[node]["best_known_bottleneck"] = 0  # 互換維持用
+    # BKBモデル用の属性を初期化（リングバッファ学習）
+    initialize_graph_nodes_for_simple_bkb(graph)
 
     for u, v in graph.edges():
         weight = random.randint(lb, ub) * 10
@@ -477,10 +238,9 @@ def grid_graph(num_nodes: int, lb: int = 1, ub: int = 10) -> nx.Graph:
     # ノードをint型に変換（0, 1, ..., num_nodes-1）
     mapping = {(i, j): i * side + j for i in range(side) for j in range(side)}
     graph = nx.relabel_nodes(graph, mapping)
-    for node in graph.nodes():
-        graph.nodes[node]["ema_bkb"] = None  # 平均（SRTT相当）
-        graph.nodes[node]["ema_bkb_var"] = 0.0  # 分散（RTTVAR相当）
-        graph.nodes[node]["best_known_bottleneck"] = 0  # 互換維持用
+
+    # BKBモデル用の属性を初期化（リングバッファ学習）
+    initialize_graph_nodes_for_simple_bkb(graph)
     for u, v in graph.edges():
         weight = random.randint(lb, ub) * 10
         graph[u][v]["weight"] = weight
@@ -583,21 +343,52 @@ if __name__ == "__main__":  # noqa: C901
     log_optimal_bandwidth = "./simulation_result/log_optimal_bandwidth.csv"
     log_aco_avg_bandwidth = "./simulation_result/log_aco_avg_bandwidth.csv"
 
-    for filename in [log_filename, log_optimal_bandwidth, log_aco_avg_bandwidth]:
+    # ★★★ 詳細分析用ログファイル ★★★
+    log_detailed = "./simulation_result/log_detailed_tracking.csv"
+
+    files = [log_filename, log_optimal_bandwidth, log_aco_avg_bandwidth, log_detailed]
+    for filename in files:
         if os.path.exists(filename):
             os.remove(filename)
             print(f"Deleted existing log file '{filename}'")
         with open(filename, "w", newline="") as f:
-            pass  # Create empty file
+            if filename == log_detailed:
+                # ヘッダー行を書き込み
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "simulation",
+                        "generation",
+                        "optimal_bw",
+                        "goal_short_bkb",
+                        "goal_long_bkb",
+                        "goal_effective_bkb",
+                        "goal_var",
+                        "confidence",
+                        "tracking_rate_short",
+                        "tracking_rate_effective",
+                        "success_rate",
+                    ]
+                )
         print(f"Initialized log file '{filename}'")
 
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
+    print("🚀 BKB学習設定")
+    learning_method = f"リングバッファ学習（サイズ={TIME_WINDOW_SIZE}、直近{TIME_WINDOW_SIZE}個の観測値のみ記憶）"
+    print(f"   学習手法: {learning_method}")
+    print(f"   ボーナス係数: {ACHIEVEMENT_BONUS}x")
+    print(f"   ペナルティ係数: {PENALTY_FACTOR}")
+    print(f"   帯域更新間隔: {BANDWIDTH_UPDATE_INTERVAL}世代ごと")
+    print("=" * 70)
     print("Simulation Settings:")
     print(f"  Ants per generation: {ANT_NUM}")
     print(f"  Number of generations: {GENERATION}")
     print("  Bandwidth variation: Every generation (AR(1) model)")
     print(f"  Number of trials: {SIMULATIONS}")
-    print("=" * 60 + "\n")
+    print("=" * 70 + "\n")
+
+    # ===== 変動設定の表示 =====
+    print_fluctuation_settings()
 
     for sim in range(SIMULATIONS):
         # ===== Simple fixed start/goal setting =====
@@ -616,10 +407,13 @@ if __name__ == "__main__":  # noqa: C901
 
         set_pheromone_min_max_by_degree_and_width(graph)
 
-        # Initialize AR(1) state
-        edge_states = initialize_ar1_states(graph)
+        # ★変動エッジを選択 (設定に応じて自動選択)★
+        fluctuating_edges = select_fluctuating_edges(graph)
 
-        # Apply initial AR(1) bandwidth update (call as generation 0)
+        # ★変動対象エッジのみ AR(1)状態を初期化★
+        edge_states = initialize_ar1_states(graph, fluctuating_edges)
+
+        # ★初回の帯域更新も変動対象のみに適用される★
         update_available_bandwidth_ar1(graph, edge_states, 0)
 
         # Calculate initial optimal solution in dynamic environment (for comparison)
@@ -675,6 +469,7 @@ if __name__ == "__main__":  # noqa: C901
                     ant_log,
                     current_optimal,
                     generation_bandwidth_log,
+                    generation,
                 )
 
             # Calculate average bottleneck bandwidth for this generation
@@ -688,7 +483,44 @@ if __name__ == "__main__":  # noqa: C901
             aco_avg_bandwidth_per_generation.append(avg_bandwidth)
 
             # Pheromone evaporation
-            volatilize_by_width(graph)
+            # ★★★ 共通モジュールを使用したフェロモン揮発 ★★★
+            volatilize_by_width(
+                graph,
+                volatilization_mode=VOLATILIZATION_MODE,
+                base_evaporation_rate=V,
+                penalty_factor=PENALTY_FACTOR,
+                adaptive_rate_func=None,  # 帯域変動パターンに基づく適応的揮発は未使用
+            )
+            # BKB値の揮発処理（共通モジュール使用）
+            evaporate_bkb_values(graph, BKB_EVAPORATION_RATE, use_int_cast=False)
+
+            # ★★★ 詳細ログ記録（10世代ごと） ★★★
+            # リングバッファ学習では統計情報がないため、シンプルなログのみ
+            if generation % 10 == 0:
+                goal_bkb = graph.nodes[GOAL_NODE].get("best_known_bottleneck", 0)
+                tracking_rate = goal_bkb / current_optimal if current_optimal > 0 else 0
+                recent_success = (
+                    sum(ant_log[-10:]) / min(len(ant_log), 10) if ant_log else 0
+                )
+
+                with open(log_detailed, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(
+                        [
+                            sim + 1,
+                            generation,
+                            current_optimal,
+                            goal_bkb,  # リングバッファ学習ではBKB値のみ
+                            0.0,  # short_bkb（未使用）
+                            0.0,  # long_bkb（未使用）
+                            goal_bkb,  # effective_bkb（BKB値を使用）
+                            0.0,  # var（未使用）
+                            0.0,  # confidence（未使用）
+                            tracking_rate,  # tracking_rate
+                            tracking_rate,  # tracking_rate_effective（同じ値）
+                            recent_success,
+                        ]
+                    )
 
             # Progress display (every 100 generations)
             if generation % 100 == 0:
@@ -706,11 +538,16 @@ if __name__ == "__main__":  # noqa: C901
                         aco_avg_bandwidth_per_generation
                     )
 
+                # ゴールノードのBKB値を取得（リングバッファ学習）
+                goal_bkb = graph.nodes[GOAL_NODE].get("best_known_bottleneck", 0)
+                bkb_display = f"ゴールBKB = {goal_bkb:.1f}Mbps"
+
                 print(
                     f"Gen {generation}: Success rate = {recent_success_rate:.3f}, "
                     f"ACO avg BW = {recent_aco_avg:.1f}Mbps, "
                     f"Current optimal = {current_optimal}Mbps, "
-                    f"Avg utilization = {avg_utilization:.3f}"
+                    f"Avg utilization = {avg_utilization:.3f}, "
+                    f"{bkb_display}"
                 )
 
                 # Detailed output of optimal solution
@@ -765,12 +602,16 @@ if __name__ == "__main__":  # noqa: C901
             (final_aco_avg / final_optimal_avg * 100) if final_optimal_avg > 0 else 0
         )
 
+        # 最終BKB値の取得（リングバッファ学習）
+        goal_bkb_final = graph.nodes[GOAL_NODE].get("best_known_bottleneck", 0)
+
         print(
             f"Simulation {sim+1}/{SIMULATIONS} completed - "
             f"Success rate: {final_success_rate:.3f}, "
             f"ACO avg: {final_aco_avg:.1f}Mbps, "
             f"Optimal avg: {final_optimal_avg:.1f}Mbps, "
-            f"Achievement: {achievement_rate:.1f}%"
+            f"Achievement: {achievement_rate:.1f}%, "
+            f"最終ゴールBKB: {goal_bkb_final:.1f}Mbps"
         )
 
     print(f"\nAll {SIMULATIONS} simulations completed!")
