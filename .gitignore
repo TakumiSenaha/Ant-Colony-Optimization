@@ -1,6 +1,7 @@
 result.json
 .mypy_cache
 __pycache__
+*.png
 *.SVG
 *.eps
 *.txt
