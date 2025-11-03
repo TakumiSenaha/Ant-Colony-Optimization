@@ -1,12 +1,22 @@
 import csv
-import math
 import random
-from typing import Dict, Tuple
 
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import networkx as nx  # type: ignore[import-untyped]
 
+from bandwidth_fluctuation_config import (
+    initialize_ar1_states,
+    print_fluctuation_settings,
+    select_fluctuating_edges,
+    update_available_bandwidth_ar1,
+)
+from bkb_learning import evaporate_bkb_values
 from modified_dijkstra import max_load_path
+from pheromone_update import (
+    calculate_current_optimal_bottleneck,
+    update_pheromone,
+    volatilize_by_width,
+)
 
 # ===== シミュレーションパラメータ =====
 V = 0.98  # フェロモン揮発量
@@ -28,11 +38,7 @@ ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
-BANDWIDTH_UPDATE_INTERVAL = 1  # 何世代ごとに帯域を更新するか（1=毎世代）
-
-MEAN_UTILIZATION: float = 0.4  # (根拠: ISPの一般的な運用マージン)
-AR_COEFFICIENT: float = 0.95  # (根拠: ネットワークトラフィックの高い自己相関)
-NOISE_VARIANCE: float = 0.000975  # (根拠: 上記2値から逆算した値)
+# 帯域変動パラメータは bandwidth_fluctuation_config.py で管理
 
 
 class Ant:
@@ -76,238 +82,13 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 VOLATILIZATION_MODE = 3
 
 
-def volatilize_by_width(graph: nx.Graph) -> None:
-    """
-    各エッジのフェロモン値を双方向で揮発させる
-    - VOLATILIZATION_MODE が 0 の場合: 固定の揮発率を適用
-    - VOLATILIZATION_MODE が 1 の場合: エッジのlocal_min/max帯域幅を基準に揮発量を調整
-    - VOLATILIZATION_MODE が 2 の場合: エッジの帯域幅の平均/分散を基準に揮発量を計算
-    - VOLATILIZATION_MODE が 3 の場合: ノードのbest_known_bottleneck(BKB)に基づきペナルティを適用
-    """
-    for u, v in graph.edges():
-        # u → v の揮発計算
-        _apply_volatilization(graph, u, v)
-        # v → u の揮発計算
-        _apply_volatilization(graph, v, u)
-
-    for node in graph.nodes():
-        if "best_known_bottleneck" in graph.nodes[node]:
-            graph.nodes[node]["best_known_bottleneck"] *= BKB_EVAPORATION_RATE
-
-
-def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
-    """
-    指定された方向のエッジ (u → v) に対して揮発処理を適用
-    """
-    # 現在のフェロモン値と帯域幅を取得
-    current_pheromone = graph[u][v]["pheromone"]
-    weight_uv = graph[u][v]["weight"]
-
-    # エッジのローカル最小・最大帯域幅を取得
-    local_min_bandwidth = graph[u][v]["local_min_bandwidth"]
-    local_max_bandwidth = graph[u][v]["local_max_bandwidth"]
-
-    # 揮発率の計算
-    if VOLATILIZATION_MODE == 0:
-        # --- 既存の揮発式 ---
-        # 最大帯域幅100Mbpsを基準に固定値で揮発率を計算
-        rate = V
-
-    # 0.99に設定する方が，最適解既知でないときに如実に良くなる．
-    elif VOLATILIZATION_MODE == 1:
-        # --- 帯域幅の最小値・最大値を基準に揮発量を調整 ---
-        # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
-        if local_max_bandwidth == local_min_bandwidth:
-            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            rate = 0.98
-        else:
-            # 使用済みエッジの場合：帯域幅の相対位置を基準に揮発量を調整
-            normalized_position = (weight_uv - local_min_bandwidth) / max(
-                1, (local_max_bandwidth - local_min_bandwidth)
-            )
-            rate = 0.98 * normalized_position
-
-    # FIXME: OverflowError: cannot convert float infinity to integer
-    elif VOLATILIZATION_MODE == 2:
-        # --- 平均・分散を基準に揮発量を調整 ---
-        # 平均帯域幅と標準偏差を計算し、それを基に揮発率を算出
-        if local_max_bandwidth == local_min_bandwidth:
-            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            avg_bandwidth = weight_uv
-            std_dev = 1  # デフォルト値
-        else:
-            # 使用済みエッジの場合
-            avg_bandwidth = 0.5 * (local_min_bandwidth + local_max_bandwidth)
-            std_dev = max(abs(local_max_bandwidth - avg_bandwidth), 1)
-
-        # 平均・分散に基づいて揮発率を計算
-        gamma = 1.0  # 減衰率の調整パラメータ
-        rate = math.exp(-gamma * (avg_bandwidth - weight_uv) / std_dev)
-
-    elif VOLATILIZATION_MODE == 3:
-        # --- ノードのBKBに基づきペナルティを適用 ---
-        # 基本の残存率を設定
-        rate = V
-
-        # 行き先ノードvが知っている最良のボトルネック帯域(BKB)を取得
-        bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-
-        # このエッジの帯域幅が、行き先ノードのBKBより低い場合、ペナルティを課す
-        if weight_uv < bkb_v:
-            rate *= PENALTY_FACTOR  # 残存率を下げることで、揮発を促進する
-
-    else:
-        raise ValueError("Invalid VOLATILIZATION_MODE. Choose 0, 1, 2 or 3.")
-
-    # フェロモン値を計算して更新
-    new_pheromone = max(
-        math.floor(current_pheromone * rate), graph[u][v]["min_pheromone"]
-    )
-    graph[u][v]["pheromone"] = new_pheromone
-
-
-def calculate_pheromone_increase(bottleneck_bandwidth: int) -> float:
-    """
-    フェロモン付加量を計算する。
-    """
-    # ボトルネック帯域が大きいほど、指数的に報酬を増やす
-    # ただし、過大にならないよう2乗程度に抑える
-    return float(bottleneck_bandwidth * 10)
-
-
-def initialize_ar1_states(graph: nx.Graph) -> Dict[Tuple[int, int], float]:
-    """
-    各エッジのAR(1)モデルの初期利用率を設定する
-    """
-    edge_states = {}
-    for u, v in graph.edges():
-        # u -> v / v -> u の初期利用率
-        util_uv = random.uniform(0.3, 0.5)
-        util_vu = random.uniform(0.3, 0.5)
-        edge_states[(u, v)] = util_uv
-        edge_states[(v, u)] = util_vu
-
-        # 標準的な可用帯域計算: キャパシティ × (1 - 使用率)
-        capacity = graph[u][v]["original_weight"]
-        avg_util = 0.5 * (util_uv + util_vu)
-        initial_available = int(round(capacity * (1.0 - avg_util)))
-        # 10Mbps刻みに丸め
-        initial_available = ((initial_available + 5) // 10) * 10
-        graph[u][v]["weight"] = initial_available
-        graph[u][v]["local_min_bandwidth"] = initial_available
-        graph[u][v]["local_max_bandwidth"] = initial_available
-    return edge_states
-
-
-def update_available_bandwidth_ar1(
-    graph: nx.Graph, edge_states: Dict[Tuple[int, int], float], generation: int
-) -> bool:
-    """
-    AR(1)モデルによる帯域変動
-    - BANDWIDTH_UPDATE_INTERVAL世代ごとにのみ更新
-    """
-    # 更新間隔でない世代は変化なし
-    if generation % BANDWIDTH_UPDATE_INTERVAL != 0:
-        return False
-
-    bandwidth_changed = False
-
-    for (u, v), current_utilization in edge_states.items():
-        # AR(1)モデル: X(t) = c + φ*X(t-1) + ε(t)
-        noise = random.gauss(0, math.sqrt(NOISE_VARIANCE))
-
-        new_utilization = (
-            (1 - AR_COEFFICIENT) * MEAN_UTILIZATION  # 平均への回帰
-            + AR_COEFFICIENT * current_utilization  # 過去の値への依存
-            + noise  # ランダムノイズ
-        )
-
-        # 利用率を0.05 - 0.95の範囲にクリップ
-        new_utilization = max(0.05, min(0.95, new_utilization))
-
-        # 状態を更新
-        edge_states[(u, v)] = new_utilization
-
-        # 標準的な可用帯域計算: キャパシティ × (1 - 使用率)
-        capacity = graph[u][v]["original_weight"]
-        available_bandwidth = int(round(capacity * (1.0 - new_utilization)))
-        # 10Mbps刻みに丸め
-        available_bandwidth = ((available_bandwidth + 5) // 10) * 10
-
-        # 変化があったかチェック
-        if graph[u][v]["weight"] != available_bandwidth:
-            bandwidth_changed = True
-
-        # グラフのweight属性を更新
-        graph[u][v]["weight"] = available_bandwidth
-
-        # local_min/max_bandwidth も更新
-        graph[u][v]["local_min_bandwidth"] = graph[u][v]["weight"]
-        graph[u][v]["local_max_bandwidth"] = graph[u][v]["weight"]
-
-    return bandwidth_changed
-
-
-def calculate_current_optimal_bottleneck(
-    graph: nx.Graph, start_node: int, goal_node: int
-) -> int:
-    """
-    現在のネットワーク状態での最適ボトルネック帯域を計算
-    """
-    try:
-        optimal_path = max_load_path(graph, start_node, goal_node)
-        optimal_bottleneck = min(
-            graph.edges[u, v]["weight"]
-            for u, v in zip(optimal_path[:-1], optimal_path[1:])
-        )
-        return optimal_bottleneck
-    except nx.NetworkXNoPath:
-        return 0
-
-
-def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
-    """
-    Antがゴールに到達したとき、経路上のフェロモンとノードのBKBを更新する。
-    ★★★ フェロモンは経路上のエッジに「双方向」で付加する ★★★
-    """
-    bottleneck_bn = min(ant.width) if ant.width else 0
-    if bottleneck_bn == 0:
-        return
-
-    # --- 経路上の各エッジにフェロモンを付加 ---
-    for i in range(1, len(ant.route)):
-        u, v = ant.route[i - 1], ant.route[i]
-
-        # ステップ1：基本のフェロモン増加量を計算
-        pheromone_increase = calculate_pheromone_increase(bottleneck_bn)
-
-        # ステップ2：功績ボーナスの判定
-        # この経路によって、行き先ノードvのBKBが更新されるか？
-        current_bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-        if bottleneck_bn > current_bkb_v:
-            pheromone_increase *= ACHIEVEMENT_BONUS
-
-        # ===== ★★★ フェロモンを双方向に付加 ★★★ =====
-        # 順方向 (u -> v) のフェロモンを更新
-        max_pheromone_uv = graph.edges[u, v].get("max_pheromone", MAX_F)
-        graph.edges[u, v]["pheromone"] = min(
-            graph.edges[u, v]["pheromone"] + pheromone_increase,
-            max_pheromone_uv,
-        )
-
-        # 逆方向 (v -> u) のフェロモンも更新
-        max_pheromone_vu = graph.edges[v, u].get("max_pheromone", MAX_F)
-        graph.edges[v, u]["pheromone"] = min(
-            graph.edges[v, u]["pheromone"] + pheromone_increase,
-            max_pheromone_vu,
-        )
-        # =======================================================
-
-    # --- BKBの更新（フェロモン付加の後に行う）---
-    # 経路上の各ノードのBKBを更新
-    for node in ant.route:
-        current_bkb = graph.nodes[node].get("best_known_bottleneck", 0)
-        graph.nodes[node]["best_known_bottleneck"] = max(current_bkb, bottleneck_bn)
+# BKB更新関数のラッパー（単純なmax手法）
+def _bkb_update_simple_max(
+    graph: nx.Graph, node: int, bottleneck: float, generation: int
+) -> None:
+    """単純なmax手法でBKBを更新"""
+    current_bkb = graph.nodes[node].get("best_known_bottleneck", 0)
+    graph.nodes[node]["best_known_bottleneck"] = max(current_bkb, bottleneck)
 
 
 # ===== 定数ε-Greedy法 =====
@@ -317,6 +98,7 @@ def ant_next_node_const_epsilon(
     ant_log: list[int],
     current_optimal_bottleneck: int,
     generation_bandwidth_log: list[int],
+    generation: int,
 ) -> None:
     """
     固定パラメータ(α, β, ε)を用いた、最もシンプルなε-Greedy法で次のノードを決定する。
@@ -361,7 +143,17 @@ def ant_next_node_const_epsilon(
         # --- ゴール判定 ---
         if ant.current == ant.destination:
             bottleneck_bw = min(ant.width) if ant.width else 0
-            update_pheromone(ant, graph)
+            # ★★★ 共通モジュールを使用したフェロモン更新 ★★★
+            update_pheromone(
+                ant,
+                graph,
+                generation,
+                max_pheromone=MAX_F,
+                achievement_bonus=ACHIEVEMENT_BONUS,
+                bkb_update_func=_bkb_update_simple_max,
+                pheromone_increase_func=None,  # シンプル版を使用
+                observe_bandwidth_func=None,  # 帯域監視は未使用
+            )
             ant_log.append(1 if bottleneck_bw >= current_optimal_bottleneck else 0)
             generation_bandwidth_log.append(bottleneck_bw)
             ant_list.remove(ant)
@@ -566,6 +358,9 @@ if __name__ == "__main__":  # noqa: C901
     print(f"  Number of trials: {SIMULATIONS}")
     print("=" * 60 + "\n")
 
+    # ===== 変動設定の表示 =====
+    print_fluctuation_settings()
+
     for sim in range(SIMULATIONS):
         # ===== Simple fixed start/goal setting =====
         NUM_NODES = 100
@@ -583,10 +378,13 @@ if __name__ == "__main__":  # noqa: C901
 
         set_pheromone_min_max_by_degree_and_width(graph)
 
-        # Initialize AR(1) state
-        edge_states = initialize_ar1_states(graph)
+        # ★変動エッジを選択 (設定に応じて自動選択)★
+        fluctuating_edges = select_fluctuating_edges(graph)
 
-        # Apply initial AR(1) bandwidth update (call as generation 0)
+        # ★変動対象エッジのみ AR(1)状態を初期化★
+        edge_states = initialize_ar1_states(graph, fluctuating_edges)
+
+        # ★初回の帯域更新も変動対象のみに適用される★
         update_available_bandwidth_ar1(graph, edge_states, 0)
 
         # Calculate initial optimal solution in dynamic environment (for comparison)
@@ -642,6 +440,7 @@ if __name__ == "__main__":  # noqa: C901
                     ant_log,
                     current_optimal,
                     generation_bandwidth_log,
+                    generation,
                 )
 
             # Calculate average bottleneck bandwidth for this generation
@@ -655,7 +454,16 @@ if __name__ == "__main__":  # noqa: C901
             aco_avg_bandwidth_per_generation.append(avg_bandwidth)
 
             # Pheromone evaporation
-            volatilize_by_width(graph)
+            # ★★★ 共通モジュールを使用したフェロモン揮発 ★★★
+            volatilize_by_width(
+                graph,
+                volatilization_mode=VOLATILIZATION_MODE,
+                base_evaporation_rate=V,
+                penalty_factor=PENALTY_FACTOR,
+                adaptive_rate_func=None,  # 帯域変動パターンに基づく適応的揮発は未使用
+            )
+            # BKB値の揮発処理（共通モジュール使用）
+            evaporate_bkb_values(graph, BKB_EVAPORATION_RATE, use_int_cast=False)
 
             # Progress display (every 100 generations)
             if generation % 100 == 0:
