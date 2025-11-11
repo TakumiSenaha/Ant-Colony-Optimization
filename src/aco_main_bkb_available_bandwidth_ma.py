@@ -55,12 +55,12 @@ ADAPTIVE_MIN_SAMPLES = 10  # パターン学習に必要な最小サンプル数
 USE_WAVELET_PERIODICITY = (
     False  # True: ウェーブレット周期性検出, False: 自己相関周期性検出
 )
-ADAPTIVE_PREDICTION_METHOD = "ar1"  # 適応的揮発での予測手法（"ar1", "ma", "ema"）
+ADAPTIVE_PREDICTION_METHOD = "ma"  # 適応的揮発での予測手法（"ar1", "ma", "ema"）
 USE_PREDICTION_VARIABILITY = True  # 予測変動性に基づく適応的揮発調整を有効化
 
 # ===== 予測的ヒューリスティック設定（研究コンペンディウム推奨: Phase 3）=====
 USE_PREDICTIVE_HEURISTIC = True  # ★予測的ヒューリスティックを有効化★
-PREDICTIVE_HEURISTIC_METHOD = "ar1"  # 予測手法（"ar1", "ma", "ema"）
+PREDICTIVE_HEURISTIC_METHOD = "ma"  # 予測手法（"ar1", "ma", "ema"）
 GAMMA = 1.0  # 予測ヒューリスティックの重み（研究コンペンディウムでは通常1.0）
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
@@ -334,7 +334,7 @@ if __name__ == "__main__":  # noqa: C901
     # ===== ログファイルの初期化 =====
     import os
 
-    log_filename = "./simulation_result/log_ant_available_bandwidth_rfc.csv"
+    log_filename = "./simulation_result/log_ant_available_bandwidth_ma_autocorr.csv"
 
     if os.path.exists(log_filename):
         os.remove(log_filename)

@@ -53,7 +53,7 @@ USE_ADAPTIVE_EVAPORATION = True  # ★帯域変動パターンに基づく適応
 ADAPTIVE_PATTERN_UPDATE_INTERVAL = 10  # パターン学習の更新間隔（世代数）
 ADAPTIVE_MIN_SAMPLES = 10  # パターン学習に必要な最小サンプル数
 USE_WAVELET_PERIODICITY = (
-    False  # True: ウェーブレット周期性検出, False: 自己相関周期性検出
+    True  # True: ウェーブレット周期性検出, False: 自己相関周期性検出
 )
 ADAPTIVE_PREDICTION_METHOD = "ar1"  # 適応的揮発での予測手法（"ar1", "ma", "ema"）
 USE_PREDICTION_VARIABILITY = True  # 予測変動性に基づく適応的揮発調整を有効化
@@ -334,7 +334,7 @@ if __name__ == "__main__":  # noqa: C901
     # ===== ログファイルの初期化 =====
     import os
 
-    log_filename = "./simulation_result/log_ant_available_bandwidth_rfc.csv"
+    log_filename = "./simulation_result/log_ant_available_bandwidth_ar1_wavelet.csv"
 
     if os.path.exists(log_filename):
         os.remove(log_filename)

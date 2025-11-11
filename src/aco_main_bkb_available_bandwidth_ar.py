@@ -334,7 +334,7 @@ if __name__ == "__main__":  # noqa: C901
     # ===== ログファイルの初期化 =====
     import os
 
-    log_filename = "./simulation_result/log_ant_available_bandwidth_rfc.csv"
+    log_filename = "./simulation_result/log_ant_available_bandwidth_ar1_autocorr.csv"
 
     if os.path.exists(log_filename):
         os.remove(log_filename)
