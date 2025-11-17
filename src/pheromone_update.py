@@ -244,9 +244,35 @@ def update_pheromone(
     if bottleneck_bn == 0:
         return
 
-    # --- 経路上の各エッジにフェロモンを付加（BKB更新の前）---
+    # ===== ★★★ アリの帰還（Backward）処理 ★★★ =====
+    # アリはゴールからスタートへと帰還（Backward）しながら、経路上のフェロモンを更新します。
+    # 帰還方向: ゴール -> ... -> j -> i -> ... -> スタート
+    #
+    # 【分散型の利点】
+    # アリがノードjにいる時点で:
+    # - 自分が持つ情報（MBL B）と、今いるノードjの記憶値K_jのみで判断できる
+    # - B >= K_j か？をローカルに比較する
+    # - その比較結果（ボーナスあり/なし）に基づき、次に戻るエッジ（j -> i）のフェロモンΔτ_jiを決定
+    # - ノードiの記憶値K_iを知る必要は全くない（分散システムとして完結）
+    #
+    # このローカルな判断ルールにより、「共有エッジの汚染問題」も自動的に回避されます。
+    # =======================================================
+
+    # --- BKBの更新を先に行う（フェロモン付加の前に）---
+    # 経路上の各ノードのBKBを更新し、更新前の値を記録（数式のK_jとして使用）
+    node_old_bkb: dict[int, float] = {}
+    for node in ant.route:
+        old_bkb = graph.nodes[node].get("best_known_bottleneck", 0)
+        node_old_bkb[node] = old_bkb  # 更新前の値を記録（数式のK_j）
+        bkb_update_func(graph, node, float(bottleneck_bn), generation)
+
+    # --- 経路上の各エッジにフェロモンを付加（BKB更新の後）---
+    # 注意: コード上は順方向（u->v）でループしているが、実際の処理は帰還時の判断を再現
+    # エッジ(u->v)の処理 = 帰還時にノードvからノードuへ戻るエッジ(v->u)の処理に対応
     for i in range(1, len(ant.route)):
         u, v = ant.route[i - 1], ant.route[i]
+        # 帰還時の視点: アリはノードvにいて、ノードuへ戻ろうとしている
+        # この時点で、アリはノードvの記憶値K_vのみを知っている（分散型の利点）
 
         # === 帯域観測（帯域変動パターン学習のため）===
         # アリがエッジを通過したときに、そのエッジの帯域を観測して記録
@@ -271,9 +297,16 @@ def update_pheromone(
             pheromone_increase = calculate_pheromone_increase_simple(bottleneck_bn)
 
             # 功績ボーナスの判定（シンプル版）
-            # 現在のノードuが知っている「この先~Mbpsでゴールできる」という情報と比較
-            current_bkb_u = graph.nodes[u].get("best_known_bottleneck", 0)
-            if bottleneck_bn > current_bkb_u:
+            # 数式: Δτ_ij = { f(B) × B_a, if B ≥ K_j; f(B), if B < K_j }
+            #
+            # 【帰還時の処理】
+            # アリがノードvにいる時点で、ノードvの記憶値K_v（更新前の値）と比較
+            # - B >= K_v の場合: ボーナスあり（ノードvの知識を更新した功績）
+            # - B < K_v の場合: ボーナスなし（ノードvは既にBより良い経路を知っている）
+            #
+            # このローカルな判断により、分散型として完結し、共有エッジの汚染も回避される
+            k_v = node_old_bkb.get(v, 0)  # ノードvの記憶値（更新前の値、数式のK_j）
+            if bottleneck_bn >= k_v:  # B ≥ K_j の場合、ボーナスあり
                 pheromone_increase *= achievement_bonus
 
         # ===== ★★★ フェロモンを双方向に付加 ★★★ =====
@@ -291,11 +324,6 @@ def update_pheromone(
             max_pheromone_vu,
         )
         # =======================================================
-
-    # --- BKBの更新（フェロモン付加の後に行う）---
-    # 経路上の各ノードのBKBを更新（コールバック関数を使用）
-    for node in ant.route:
-        bkb_update_func(graph, node, float(bottleneck_bn), generation)
 
 
 def calculate_current_optimal_bottleneck(
