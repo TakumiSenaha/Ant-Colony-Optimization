@@ -45,7 +45,6 @@ SIMULATIONS = 100  # シミュレーションの試行回数
 # ===== BKB学習設定（リングバッファ学習）=====
 TIME_WINDOW_SIZE = 10  # リングバッファサイズ（記憶する観測値の数）
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ
 
 # ===== 適応的揮発モデル設定 =====
@@ -199,7 +198,6 @@ def ant_next_node_const_epsilon(
                 graph,
                 generation,
                 max_pheromone=MAX_F,
-                achievement_bonus=ACHIEVEMENT_BONUS,
                 bkb_update_func=_bkb_update_func,
                 pheromone_increase_func=None,  # シンプル版を使用
                 observe_bandwidth_func=observe_func,  # ★帯域観測を有効化★
@@ -311,7 +309,6 @@ if __name__ == "__main__":  # noqa: C901
         f"   学習手法: リングバッファ学習（直近{TIME_WINDOW_SIZE}個の観測値の最大値を記憶）"
     )
     print(f"   BKB揮発率: {BKB_EVAPORATION_RATE}")
-    print(f"   ボーナス係数: {ACHIEVEMENT_BONUS}x")
     print(f"   ペナルティ係数: {PENALTY_FACTOR}")
     print(f"   帯域更新間隔: {BANDWIDTH_UPDATE_INTERVAL}世代ごと")
     if USE_ADAPTIVE_EVAPORATION:

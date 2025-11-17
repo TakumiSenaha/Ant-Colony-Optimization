@@ -23,7 +23,6 @@ SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ =====
 PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 # ===== キャッシュ管理パラメータ =====
@@ -70,7 +69,6 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 VOLATILIZATION_MODE = 3
 
 # ===== 新しいパラメータ（功績ボーナス）=====
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合のフェロモン増加ボーナス係数
 
 
 # BKB更新関数のラッパー（単純なmax手法）
@@ -137,7 +135,6 @@ def ant_next_node_const_epsilon(
                 graph,
                 generation,
                 max_pheromone=MAX_F,
-                achievement_bonus=ACHIEVEMENT_BONUS,
                 bkb_update_func=_bkb_update_simple_max,
                 pheromone_increase_func=None,  # シンプル版を使用
                 observe_bandwidth_func=None,  # 帯域監視は未使用

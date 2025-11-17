@@ -10,6 +10,10 @@ from typing import Callable, Optional
 
 import networkx as nx  # type: ignore[import-untyped]
 
+# ===== 功績ボーナスパラメータ（一元管理） =====
+# ★★★ メイン設定：ここを変更するだけで全ファイルに反映されます ★★★
+ACHIEVEMENT_BONUS: float = 1.5  # BKBを更新した場合のフェロモン増加ボーナス係数
+
 
 def calculate_pheromone_increase_simple(bottleneck_bandwidth: int) -> float:
     """
@@ -37,7 +41,7 @@ def calculate_pheromone_increase_statistical(
         bottleneck_bandwidth: ボトルネック帯域幅
         node_mean: ノードの平均BKB
         node_var: ノードのBKB分散
-        achievement_bonus_func: 功績ボーナス計算関数
+        achievement_bonus_func: 功績ボーナス計算関数（未使用、互換性のため残す）
 
     Returns:
         フェロモン付加量
@@ -59,12 +63,8 @@ def calculate_pheromone_increase_statistical(
         else:  # 低変動環境
             dynamic_multiplier = 1.0  # そのまま
 
-        # 功績ボーナスも適用
-        achievement_bonus = achievement_bonus_func(
-            float(bottleneck_bandwidth), node_mean, node_var
-        )
-
-        return base_increase * dynamic_multiplier * achievement_bonus
+        # 功績ボーナスは使用しない（achievement_bonus_funcは互換性のため残す）
+        return base_increase * dynamic_multiplier
     else:
         # 学習初期段階は基本値
         return base_increase
@@ -216,8 +216,8 @@ def update_pheromone(
     graph: nx.Graph,
     generation: int,
     max_pheromone: float,
-    achievement_bonus: float,
     bkb_update_func: Callable[[nx.Graph, int, float, int], None],
+    achievement_bonus: float = ACHIEVEMENT_BONUS,
     pheromone_increase_func: Optional[Callable[[int, float, float], float]] = None,
     observe_bandwidth_func: Optional[
         Callable[[nx.Graph, int, int, float], None]
@@ -232,7 +232,7 @@ def update_pheromone(
         graph: ネットワークグラフ
         generation: 現在の世代番号
         max_pheromone: フェロモンの最大値
-        achievement_bonus: 功績ボーナス係数
+        achievement_bonus: 功績ボーナス係数（デフォルト: ACHIEVEMENT_BONUS = 1.0）
         bkb_update_func: BKB更新関数 (graph, node, bottleneck, generation) -> None
         pheromone_increase_func: フェロモン増加量計算関数（統計的BKB学習用）
                                   Noneの場合はシンプル版を使用

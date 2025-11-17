@@ -37,7 +37,6 @@ SIMULATIONS = 100  # シミュレーションの試行回数
 # ===== BKBモデル用パラメータ（リングバッファサイズ = 観測値数）=====
 TIME_WINDOW_SIZE = 10  # リングバッファサイズ（直近1000個の観測値を記憶）
 PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = (
     0.999  # BKB値の揮発率（リングバッファ内の観測値は揮発しないが、BKB値にのみ適用）
 )
@@ -87,7 +86,6 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 VOLATILIZATION_MODE = 3
 
 # ===== 新しいパラメータ（功績ボーナス）=====
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合のフェロモン増加ボーナス係数
 
 
 # ===== 定数ε-Greedy法 =====
@@ -145,7 +143,6 @@ def ant_next_node_const_epsilon(
                 graph,
                 generation,
                 max_pheromone=MAX_F,
-                achievement_bonus=ACHIEVEMENT_BONUS,
                 bkb_update_func=lambda g, n, b, gen: update_node_bkb_time_window_max(
                     g, n, b, gen, time_window_size=TIME_WINDOW_SIZE
                 ),
@@ -276,7 +273,7 @@ if __name__ == "__main__":  # noqa: C901
         # グラフはシミュレーションごとに一度だけ生成
         # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
         # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
-        graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=15)
+        graph = ba_graph(num_nodes=NUM_NODES, num_edges=3, lb=1, ub=15)
 
         set_pheromone_min_max_by_degree_and_width(graph)
 

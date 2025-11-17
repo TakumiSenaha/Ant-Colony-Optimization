@@ -24,7 +24,6 @@ SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ =====
 PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 
@@ -166,7 +165,6 @@ def calculate_pheromone_increase(bottleneck_bandwidth: int) -> float:
 
 
 # ===== 新しいパラメータ（功績ボーナス）=====
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合のフェロモン増加ボーナス係数
 
 
 def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
@@ -185,11 +183,7 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         # ステップ1：基本のフェロモン増加量を計算
         pheromone_increase = calculate_pheromone_increase(bottleneck_bn)
 
-        # ステップ2：功績ボーナスの判定
-        # この経路によって、行き先ノードvのBKBが更新されるか？
-        current_bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-        if bottleneck_bn > current_bkb_v:
-            pheromone_increase *= ACHIEVEMENT_BONUS
+        # ステップ2：功績ボーナスの判定（使用しない）
 
         # ===== ★★★ フェロモンを双方向に付加 ★★★ =====
         # 順方向 (u -> v) のフェロモンを更新

@@ -24,7 +24,6 @@ SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ =====
 PENALTY_FACTOR = 0.9  # BKBを下回るエッジへのペナルティ (0.0-1.0)
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率
 
 
@@ -102,10 +101,7 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         u, v = ant.route[i - 1], ant.route[i]
         pheromone_increase = bottleneck_bn * 10
 
-        current_bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-        current_bkb_u = graph.nodes[u].get("best_known_bottleneck", 0)
-        if bottleneck_bn > current_bkb_v or bottleneck_bn > current_bkb_u:
-            pheromone_increase = int(pheromone_increase * ACHIEVEMENT_BONUS)
+        # 功績ボーナスは使用しない
 
         max_pheromone_uv = graph.edges[u, v].get("max_pheromone", MAX_F)
         graph.edges[u, v]["pheromone"] = min(

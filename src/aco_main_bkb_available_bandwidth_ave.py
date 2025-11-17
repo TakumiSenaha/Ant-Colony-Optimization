@@ -42,7 +42,6 @@ SIMULATIONS = 1  # シミュレーションの試行回数
 # ===== BKBモデル用パラメータ（リングバッファサイズ1）=====
 TIME_WINDOW_SIZE = 1  # リングバッファサイズ（直近1個の観測値のみ記憶）
 BKB_EVAPORATION_RATE = 0.999  # BKB値の揮発率（リングバッファサイズ1では実質効果なし）
-ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
@@ -148,7 +147,6 @@ def ant_next_node_const_epsilon(
                 graph,
                 generation,
                 max_pheromone=MAX_F,
-                achievement_bonus=ACHIEVEMENT_BONUS,
                 bkb_update_func=lambda g, n, b, gen: update_node_bkb_time_window_max(
                     g, n, b, gen, time_window_size=TIME_WINDOW_SIZE
                 ),
@@ -376,7 +374,6 @@ if __name__ == "__main__":  # noqa: C901
     print("🚀 BKB学習設定")
     learning_method = f"リングバッファ学習（サイズ={TIME_WINDOW_SIZE}、直近{TIME_WINDOW_SIZE}個の観測値のみ記憶）"
     print(f"   学習手法: {learning_method}")
-    print(f"   ボーナス係数: {ACHIEVEMENT_BONUS}x")
     print(f"   ペナルティ係数: {PENALTY_FACTOR}")
     print(f"   帯域更新間隔: {BANDWIDTH_UPDATE_INTERVAL}世代ごと")
     print("=" * 70)

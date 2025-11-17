@@ -15,8 +15,6 @@ import networkx as nx  # type: ignore[import-untyped]
 DEFAULT_BKB_MEAN_ALPHA = 1 / 8  # SRTTの学習率 (0.125) - RFC 6298標準
 DEFAULT_BKB_VAR_BETA = 1 / 4  # RTTVARの学習率 (0.25) - RFC 6298標準
 DEFAULT_BKB_CONFIDENCE_K = 1.0  # 信頼区間幅の係数（平均 - K*分散）
-DEFAULT_ACHIEVEMENT_BONUS_BASE = 1.5  # 基本の報酬ボーナス係数
-DEFAULT_ACHIEVEMENT_BONUS_MAX = 3.0  # ボーナスの最大値（静的環境で一点集中）
 DEFAULT_CONFIDENCE_SCALING = 2.0  # 確信度に基づくボーナススケーリング係数
 DEFAULT_PENALTY_FACTOR = 0.5  # BKB「信頼下限」を下回るエッジへのペナルティ
 
@@ -29,31 +27,22 @@ class BKBLearningConfig:
         mean_alpha: float = DEFAULT_BKB_MEAN_ALPHA,
         var_beta: float = DEFAULT_BKB_VAR_BETA,
         confidence_k: float = DEFAULT_BKB_CONFIDENCE_K,
-        achievement_bonus_base: float = DEFAULT_ACHIEVEMENT_BONUS_BASE,
-        achievement_bonus_max: float = DEFAULT_ACHIEVEMENT_BONUS_MAX,
         confidence_scaling: float = DEFAULT_CONFIDENCE_SCALING,
         penalty_factor: float = DEFAULT_PENALTY_FACTOR,
-        use_confidence_based_bonus: bool = True,
     ):
         """
         Args:
             mean_alpha: 平均値の学習率（RFC 6298のα）
             var_beta: 分散の学習率（RFC 6298のβ）
             confidence_k: 信頼区間幅の係数
-            achievement_bonus_base: 基本の報酬ボーナス係数
-            achievement_bonus_max: ボーナスの最大値
             confidence_scaling: 確信度スケーリング係数
             penalty_factor: ペナルティ係数
-            use_confidence_based_bonus: 確信度ベースのボーナスを使用するか
         """
         self.mean_alpha = mean_alpha
         self.var_beta = var_beta
         self.confidence_k = confidence_k
-        self.achievement_bonus_base = achievement_bonus_base
-        self.achievement_bonus_max = achievement_bonus_max
         self.confidence_scaling = confidence_scaling
         self.penalty_factor = penalty_factor
-        self.use_confidence_based_bonus = use_confidence_based_bonus
 
 
 def update_node_bkb_statistics(
@@ -97,124 +86,6 @@ def update_node_bkb_statistics(
     graph.nodes[node]["best_known_bottleneck"] = max(
         graph.nodes[node].get("best_known_bottleneck", 0), int(mean_new)
     )
-
-
-def calculate_achievement_bonus_simple(
-    bottleneck: float, node_mean: float, bonus: float = DEFAULT_ACHIEVEMENT_BONUS_BASE
-) -> float:
-    """
-    シンプルな功績ボーナス計算（従来手法）
-
-    Args:
-        bottleneck: アントが発見したボトルネック帯域
-        node_mean: ノードの平均BKB
-        bonus: ボーナス係数
-
-    Returns:
-        ボーナス係数（1.0 または bonus）
-    """
-    if bottleneck > node_mean:
-        return bonus
-    return 1.0
-
-
-def calculate_achievement_bonus_confidence_based(
-    bottleneck: float,
-    node_mean: float,
-    node_var: float,
-    config: Optional[BKBLearningConfig] = None,
-) -> float:
-    """
-    確信度ベースの功績ボーナスを計算（改良版 v2）
-
-    **改良ポイント（v2）**：
-    - 基本ボーナス（achievement_bonus_base）を常に保証
-    - 確信度が高い場合は追加ボーナスを付与
-    - 初期段階でもシンプル手法並みの収束速度を実現
-    - 静的環境では確信度が上がり、さらに強力なボーナスに
-
-    戦略:
-    - 初期段階（低確信度）：基本ボーナス（1.5x）で素早く収束
-    - 静的環境（高確信度）：追加ボーナスで一点集中（最大3.0x）
-    - 動的環境（低確信度維持）：基本ボーナスで柔軟な探索
-
-    Args:
-        bottleneck: アントが発見したボトルネック帯域
-        node_mean: ノードの平均BKB
-        node_var: ノードのBKB分散
-        config: BKB学習の設定（Noneの場合はデフォルト）
-
-    Returns:
-        ボーナス係数（1.0 または achievement_bonus_base ~ achievement_bonus_max）
-    """
-    if config is None:
-        config = BKBLearningConfig()
-
-    # 基本的な功績判定：平均以下ならボーナスなし
-    if bottleneck <= node_mean:
-        return 1.0
-
-    # 平均超過の度合い（相対的な改善率）
-    if node_mean > 0:
-        excess_ratio = (bottleneck - node_mean) / node_mean
-    else:
-        excess_ratio = 1.0  # 初期状態
-
-    # 確信度の計算（分散が小さいほど確信度が高い）
-    # 分散が0に近い → 確信度 ≈ 1.0（静的環境）
-    # 分散が大きい → 確信度 ≈ 0.0（動的環境）
-    if node_mean > 0 and node_var > 0:
-        # 変動係数（CV: Coefficient of Variation）の逆数を使用
-        # CV = std / mean = sqrt(var) / mean
-        # 確信度 = 1 / (1 + CV)
-        cv = math.sqrt(node_var) / node_mean
-        confidence = 1.0 / (1.0 + cv)
-    else:
-        confidence = 0.5  # デフォルト（中間的な確信度）
-
-    # ★★★ 改良：基本ボーナスを保証 ★★★
-    # 初期段階（低確信度）でもシンプル手法並みの収束速度を実現
-    # 基本ボーナス：achievement_bonus_base（例：1.5）
-    # 追加ボーナス：確信度が高いほど大きくなる
-    base_bonus = config.achievement_bonus_base
-    additional_bonus = confidence * excess_ratio * config.confidence_scaling
-
-    # 最終ボーナス = 基本 + 追加
-    bonus = base_bonus + additional_bonus
-
-    # 最大値でクリップ
-    return min(bonus, config.achievement_bonus_max)
-
-
-def calculate_achievement_bonus(
-    bottleneck: float,
-    node_mean: float,
-    node_var: float,
-    config: Optional[BKBLearningConfig] = None,
-) -> float:
-    """
-    功績ボーナスを計算（設定に応じて手法を切り替え）
-
-    Args:
-        bottleneck: アントが発見したボトルネック帯域
-        node_mean: ノードの平均BKB
-        node_var: ノードのBKB分散
-        config: BKB学習の設定（Noneの場合はデフォルト）
-
-    Returns:
-        ボーナス係数
-    """
-    if config is None:
-        config = BKBLearningConfig()
-
-    if config.use_confidence_based_bonus:
-        return calculate_achievement_bonus_confidence_based(
-            bottleneck, node_mean, node_var, config
-        )
-    else:
-        return calculate_achievement_bonus_simple(
-            bottleneck, node_mean, config.achievement_bonus_base
-        )
 
 
 def calculate_confidence(node_mean: float, node_var: float) -> float:
