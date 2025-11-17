@@ -67,8 +67,12 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 10) -> n
 def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
     """指定されたエッジ(u->v)のフェロモンを揮発させる"""
     rate = V
-    bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-    if graph.edges[u, v]["weight"] < bkb_v:
+    # 現在のノードuが知っている最良のボトルネック帯域(BKB)を取得
+    bkb_u = graph.nodes[u].get("best_known_bottleneck", 0)
+    # このエッジの帯域幅が、現在のノードuのBKBより低い場合、ペナルティを課す
+    # 理由: ノードuが既に𝐾_uという最適値を知っているなら、
+    #       それより小さい帯域のエッジは使わない方が良い
+    if graph.edges[u, v]["weight"] < bkb_u:
         rate *= PENALTY_FACTOR
 
     current_pheromone = graph.edges[u, v]["pheromone"]

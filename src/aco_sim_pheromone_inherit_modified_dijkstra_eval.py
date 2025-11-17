@@ -151,11 +151,14 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
         # 基本の残存率を設定
         rate = V
 
-        # 行き先ノードvが知っている最良のボトルネック帯域(BKB)を取得
-        bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
+        # 現在のノードuが知っている最良のボトルネック帯域(BKB)を取得
+        bkb_u = graph.nodes[u].get("best_known_bottleneck", 0)
 
-        # このエッジの帯域幅が、行き先ノードのBKBより低い場合、ペナルティを課す
-        if weight_uv < bkb_v:
+        # このエッジの帯域幅が、現在のノードuのBKBより低い場合、ペナルティを課す
+        # 理由: ノードuが既に𝐾_uという最適値を知っているなら、
+        #       それより小さい帯域のエッジは使わない方が良い（そのノードを通って
+        #       この値でゴールできるはずなのに、その道を通るわけはない）
+        if weight_uv < bkb_u:
             rate *= PENALTY_FACTOR  # 残存率を下げることで、揮発を促進する
 
     else:
