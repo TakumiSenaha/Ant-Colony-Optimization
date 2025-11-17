@@ -4,10 +4,10 @@ import random
 import networkx as nx  # type: ignore[import-untyped]
 
 from bandwidth_fluctuation_config import (
-    initialize_ar1_states,
+    initialize_fluctuation_states,
     print_fluctuation_settings,
     select_fluctuating_edges,
-    update_available_bandwidth_ar1,
+    update_available_bandwidth,
 )
 from bkb_learning import (
     evaporate_bkb_values,
@@ -35,11 +35,11 @@ GENERATION = 1000  # 総世代数
 SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ（リングバッファサイズ = 観測値数）=====
-TIME_WINDOW_SIZE = 1000  # リングバッファサイズ（直近1000個の観測値を記憶）
+TIME_WINDOW_SIZE = 10  # リングバッファサイズ（直近1000個の観測値を記憶）
 PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
 ACHIEVEMENT_BONUS = 1.5  # BKBを更新した場合の報酬ボーナス係数
 BKB_EVAPORATION_RATE = (
-    0.9  # BKB値の揮発率（リングバッファ内の観測値は揮発しないが、BKB値にのみ適用）
+    0.999  # BKB値の揮発率（リングバッファ内の観測値は揮発しないが、BKB値にのみ適用）
 )
 
 # ===== 動的帯域変動パラメータ（AR(1)モデル） =====
@@ -283,11 +283,11 @@ if __name__ == "__main__":  # noqa: C901
         # ★変動エッジを選択 (設定に応じて自動選択)★
         fluctuating_edges = select_fluctuating_edges(graph)
 
-        # ★変動対象エッジのみ AR(1)状態を初期化★
-        edge_states = initialize_ar1_states(graph, fluctuating_edges)
+        # ★変動対象エッジのみ変動モデルの状態を初期化（FLUCTUATION_MODELに応じて自動選択）★
+        edge_states = initialize_fluctuation_states(graph, fluctuating_edges)
 
-        # ★初回の帯域更新も変動対象のみに適用される★
-        update_available_bandwidth_ar1(graph, edge_states, 0)
+        # ★初回の帯域更新も変動対象のみに適用される（FLUCTUATION_MODELに応じて自動選択）★
+        update_available_bandwidth(graph, edge_states, 0)
 
         # 動的環境での初期最適解の計算（比較用）
         try:
@@ -304,8 +304,8 @@ if __name__ == "__main__":  # noqa: C901
         bandwidth_change_count = 0  # 帯域変動の累計回数
 
         for generation in range(GENERATION):
-            # === AR(1)モデルによる帯域変動 ===
-            bandwidth_changed = update_available_bandwidth_ar1(
+            # === 変動モデルによる帯域変動（FLUCTUATION_MODELに応じて自動選択）===
+            bandwidth_changed = update_available_bandwidth(
                 graph, edge_states, generation
             )
             bandwidth_change_log.append(1 if bandwidth_changed else 0)
@@ -322,9 +322,17 @@ if __name__ == "__main__":  # noqa: C901
 
             # 帯域変動があった場合は通知
             if bandwidth_changed and generation % 50 == 0:
-                avg_utilization = sum(edge_states.values()) / len(edge_states)
+                # 平均利用率を計算（edge_statesは辞書の辞書なので、各エッジのutilizationを取得）
+                utilizations = [
+                    state.get("utilization", 0.4)
+                    for state in edge_states.values()
+                    if isinstance(state, dict)
+                ]
+                avg_utilization = (
+                    sum(utilizations) / len(utilizations) if utilizations else 0.4
+                )
                 print(
-                    f"世代 {generation}: AR(1)帯域変動発生 - "
+                    f"世代 {generation}: 帯域変動発生 - "
                     f"新しい最適値: {current_optimal}, "
                     f"平均利用率: {avg_utilization:.3f}"
                 )
@@ -363,7 +371,15 @@ if __name__ == "__main__":  # noqa: C901
                     if bandwidth_change_log
                     else 0
                 )
-                avg_utilization = sum(edge_states.values()) / len(edge_states)
+                # 平均利用率を計算
+                utilizations = [
+                    state.get("utilization", 0.4)
+                    for state in edge_states.values()
+                    if isinstance(state, dict)
+                ]
+                avg_utilization = (
+                    sum(utilizations) / len(utilizations) if utilizations else 0.4
+                )
                 print(
                     f"世代 {generation}: 成功率 = {recent_success_rate:.3f}, "
                     f"帯域変化率 = {bandwidth_change_rate:.3f}, "
