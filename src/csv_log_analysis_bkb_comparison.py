@@ -27,16 +27,16 @@ LEGEND_FONTSIZE = 12  # 凡例のフォントサイズ（小さめに設定）
 FILES_COMPARISON_1 = {
     # 忘却率1.0
     "./simulation_result/log_ant_available_bandwidth_1_10.csv": "忘却率1.0, 記憶観測値数: 10",
-    "./simulation_result/log_ant_available_bandwidth_1_100.csv": "忘却率1.0, 記憶観測値数: 100",
-    "./simulation_result/log_ant_available_bandwidth_1_1000.csv": "忘却率1.0, 記憶観測値数: 1000",
+    # "./simulation_result/log_ant_available_bandwidth_1_100.csv": "忘却率1.0, 記憶観測値数: 100",
+    # "./simulation_result/log_ant_available_bandwidth_1_1000.csv": "忘却率1.0, 記憶観測値数: 1000",
     # 忘却率0.99
     "./simulation_result/log_ant_available_bandwidth_0999_10.csv": "忘却率0.99, 記憶観測値数: 10",
-    "./simulation_result/log_ant_available_bandwidth_0999_100.csv": "忘却率0.99, 記憶観測値数: 100",
-    "./simulation_result/log_ant_available_bandwidth_0999_1000.csv": "忘却率0.99, 記憶観測値数: 1000",
+    # "./simulation_result/log_ant_available_bandwidth_0999_100.csv": "忘却率0.99, 記憶観測値数: 100",
+    # "./simulation_result/log_ant_available_bandwidth_0999_1000.csv": "忘却率0.99, 記憶観測値数: 1000",
     # 忘却率0.9
     "./simulation_result/log_ant_available_bandwidth_09_10.csv": "忘却率0.9, 記憶観測値数: 10",
-    "./simulation_result/log_ant_available_bandwidth_09_100.csv": "忘却率0.9, 記憶観測値数: 100",
-    "./simulation_result/log_ant_available_bandwidth_09_1000.csv": "忘却率0.9, 記憶観測値数: 1000",
+    # "./simulation_result/log_ant_available_bandwidth_09_100.csv": "忘却率0.9, 記憶観測値数: 100",
+    # "./simulation_result/log_ant_available_bandwidth_09_1000.csv": "忘却率0.9, 記憶観測値数: 1000",
 }
 
 # --- 比較セット2: 忘却率1.0と0.9の比較（リングバッファサイズ1000） ---
