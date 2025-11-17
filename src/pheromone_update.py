@@ -271,8 +271,9 @@ def update_pheromone(
             pheromone_increase = calculate_pheromone_increase_simple(bottleneck_bn)
 
             # 功績ボーナスの判定（シンプル版）
-            current_bkb_v = graph.nodes[v].get("best_known_bottleneck", 0)
-            if bottleneck_bn > current_bkb_v:
+            # 現在のノードuが知っている「この先~Mbpsでゴールできる」という情報と比較
+            current_bkb_u = graph.nodes[u].get("best_known_bottleneck", 0)
+            if bottleneck_bn > current_bkb_u:
                 pheromone_increase *= achievement_bonus
 
         # ===== ★★★ フェロモンを双方向に付加 ★★★ =====
