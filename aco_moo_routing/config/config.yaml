@@ -1,0 +1,73 @@
+# ACO Multi-Objective Routing Configuration
+
+experiment:
+  name: "step2_bandwidth_delay"
+  generations: 1000
+  num_ants: 50
+  simulations: 100
+  target_objectives: ["bandwidth", "delay"] # "hops" を追加可能 (Step 1: ["bandwidth", "hops"], Step 3: ["bandwidth", "delay", "hops"])
+
+graph:
+  num_nodes: 100
+  num_edges: 3 # BA modelのm（各ノードが追加する際のエッジ数）
+  graph_type: "barabasi_albert" # "barabasi_albert", "erdos_renyi", "grid"
+  bandwidth_range: [10, 150] # Mbps
+  delay_range: [1, 10] # ms (base delay)
+  fluctuation:
+    enabled: true
+    model: "ar1" # "ar1", "ar2", "markov_chain", "random_walk"
+    target_method: "hub" # "hub", "random", "betweenness"
+    target_percentage: 0.1 # 上位10%のハブノード
+    update_interval: 1 # 毎世代更新
+
+aco:
+  # フェロモンの影響度
+  alpha: 1.0
+
+  # ヒューリスティック情報の重要度（目的関数ごと）
+  beta_bandwidth: 1.0
+  beta_delay: 1.0
+  beta_hops: 1.0
+
+  # ε-Greedy法
+  epsilon: 0.1 # ランダム行動の固定確率
+
+  # フェロモン関連
+  evaporation_rate: 0.02 # 揮発率（1 - 残存率0.98）
+  min_pheromone: 100
+  max_pheromone: 1000000000
+
+  # TTL（生存時間）
+  ttl: 100
+
+  # 学習パラメータ
+  learning:
+    bkb_window_size: 10 # リングバッファサイズ（BKB/BLD/BKH共通）
+    bonus_factor: 1.5 # 功績ボーナス係数
+    penalty_factor: 0.5 # BKBベースペナルティ係数
+    volatilization_mode: 3 # 3: BKBベースのペナルティ付き揮発
+    bkb_evaporation_rate: 0.001 # BKB値の揮発率（1 - 残存率0.999）
+    delay_tolerance: 5.0 # 遅延の許容誤差（ms）
+
+# パレートフロンティア計算
+pareto:
+  enabled: true
+  max_labels_per_node: 1000 # 各ノードで保持する最大ラベル数（メモリ制約）
+  reference_point: [0, 1000, 200] # Hypervolume計算用の基準点 [bandwidth, delay, hops]
+
+# 評価指標
+evaluation:
+  metrics:
+    - "pareto_discovery_rate" # パレート最適解への到達率
+    - "dominance_rate" # 支配されない解の割合
+    - "hypervolume" # 超体積（Step 3で重要）
+    - "convergence_rate" # 収束率
+
+# 出力設定
+output:
+  save_results: true
+  save_interval: 100 # 何世代ごとに中間結果を保存するか
+  save_graphs: true # グラフを保存するか
+  results_dir: "results"
+  log_level: "INFO" # "DEBUG", "INFO", "WARNING", "ERROR"
+
