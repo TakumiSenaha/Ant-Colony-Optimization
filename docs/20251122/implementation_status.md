@@ -185,3 +185,6 @@ PREDICTIVE_HEURISTIC_METHOD = "ar1"  # 予測手法を選択
 - `docs/research_compendium_summary.md`: 研究コンペンディウムの要約
 - `docs/implementation_preparation.md`: 実装準備ドキュメント
 - `docs/ar1_clarification.md`: AR(1)モデルの用途の整理
+
+
+

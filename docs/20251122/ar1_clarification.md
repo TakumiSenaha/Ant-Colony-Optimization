@@ -137,3 +137,6 @@ predicted_bandwidth = predict_next_bandwidth_ar1(history, ar_coefficient)
 3. **BKB 学習**: 無関係
 
 研究コンペンディウムの「AR(1)は不十分」という主張は、**予測モデル**についてであり、**生成モデル**や**BKB 学習**とは無関係。
+
+
+
