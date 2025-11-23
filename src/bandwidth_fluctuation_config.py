@@ -50,7 +50,7 @@ RANDOM_SELECTION_TIMING = (
 # "markov_chain": マルコフ連鎖モデル（状態遷移）
 # "mixed": 混合モデル（AR(1) + 正弦波）
 # "exponential_decay": 指数関数的減衰モデル
-FLUCTUATION_MODEL = "random_walk"  # ★変動モデルを選択★
+FLUCTUATION_MODEL = "ar1"  # ★変動モデルを選択★
 
 # ===== AR(1)モデルパラメータ =====
 MEAN_UTILIZATION: float = 0.4  # (根拠: ISPの一般的な運用マージン)

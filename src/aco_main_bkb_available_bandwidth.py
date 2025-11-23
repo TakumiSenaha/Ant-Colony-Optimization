@@ -273,7 +273,7 @@ if __name__ == "__main__":  # noqa: C901
         # グラフはシミュレーションごとに一度だけ生成
         # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
         # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
-        graph = ba_graph(num_nodes=NUM_NODES, num_edges=3, lb=1, ub=15)
+        graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=15)
 
         set_pheromone_min_max_by_degree_and_width(graph)
 

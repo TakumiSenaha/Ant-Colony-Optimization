@@ -14,7 +14,7 @@ TICK_LABEL_FONTSIZE = 24  # 目盛りラベルのフォントサイズ (10-12pt�
 # ===================
 
 # CSVファイル名
-csv_file_name = "./simulation_result/log_ant.csv"
+csv_file_name = "./simulation_result/log_ant_available_bandwidth.csv"
 export_image_name = "./simulation_result/result_optimal_percentage.svg"
 
 
