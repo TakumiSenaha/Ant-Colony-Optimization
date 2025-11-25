@@ -3,22 +3,22 @@
 experiment:
   name: "step2_bandwidth_delay"
   generations: 1000
-  num_ants: 50
+  num_ants: 10
   simulations: 100
-  target_objectives: ["bandwidth", "delay"] # "hops" を追加可能 (Step 1: ["bandwidth", "hops"], Step 3: ["bandwidth", "delay", "hops"])
+  target_objectives: ["bandwidth", "delay", "hops"] # "hops" を追加可能 (Step 1: ["bandwidth", "hops"], Step 3: ["bandwidth", "delay", "hops"])
 
 graph:
   num_nodes: 100
   num_edges: 3 # BA modelのm（各ノードが追加する際のエッジ数）
   graph_type: "barabasi_albert" # "barabasi_albert", "erdos_renyi", "grid"
-  bandwidth_range: [10, 150] # Mbps
-  delay_range: [1, 10] # ms (base delay)
+  bandwidth_range: [10, 200] # Mbps (既存実装: random.randint(1, 15) * 10)
+  delay_range: [10, 100] # ms (base delay, 10刻み)
   fluctuation:
-    enabled: true
+    enabled: false # 変動なし環境でテスト（既存実装との比較用）
     model: "ar1" # "ar1", "ar2", "markov_chain", "random_walk"
     target_method: "hub" # "hub", "random", "betweenness"
     target_percentage: 0.1 # 上位10%のハブノード
-    update_interval: 1 # 毎世代更新
+    update_interval: 10000
 
 aco:
   # フェロモンの影響度
