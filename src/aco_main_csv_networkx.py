@@ -1,20 +1,26 @@
 import csv
 import math
 import random
-import sys
 from datetime import datetime
 
 import networkx as nx
 from networkx.drawing.nx_agraph import to_agraph
 
+from bandwidth_fluctuation_config import (
+    initialize_fluctuation_states,
+    print_fluctuation_settings,
+    select_fluctuating_edges,
+    update_available_bandwidth,
+)
 from modified_dijkstra import max_load_path
 
-V = 0.99  # フェロモン揮発量
+V = 0.98  # フェロモン揮発量（論文の値に合わせる）
 MIN_F = 100  # フェロモン最小値
 MAX_F = 1000000000  # フェロモン最大値
 TTL = 100  # AntのTime to Live
 W = 1000  # 帯域幅初期値
-BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗)
+ALPHA = 1  # 経路選択の際のフェロモン値に対する重み(累乗) - 論文のα
+BETA = 1  # 経路選択の際のヒューリスティック値に対する重み(累乗) - 論文のβ
 
 ANT_NUM = 10  # 一回で放つAntの数
 GENERATION = 1000  # ant，interestを放つ回数(世代)
@@ -31,7 +37,10 @@ class Ant:
         self.width = width  # 辿ってきた経路の帯域の配列
 
     def __repr__(self):
-        return f"Ant(current={self.current}, destination={self.destination}, route={self.route}, width={self.width})"
+        return (
+            f"Ant(current={self.current}, destination={self.destination}, "
+            f"route={self.route}, width={self.width})"
+        )
 
 
 class Interest:
@@ -42,7 +51,10 @@ class Interest:
         self.minwidth = minwidth  # 辿ってきた経路の最小帯域
 
     def __repr__(self):
-        return f"Interest(current={self.current}, destination={self.destination}, route={self.route}, minwidth={self.minwidth})"
+        return (
+            f"Interest(current={self.current}, destination={self.destination}, "
+            f"route={self.route}, minwidth={self.minwidth})"
+        )
 
 
 def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
@@ -104,19 +116,13 @@ def _apply_volatilization(graph: nx.Graph, u: int, v: int) -> None:
         # 最大帯域幅100Mbpsを基準に固定値で揮発率を計算
         rate = V * (0.8 ** ((100 - weight_uv) / 10))
 
-    # 0.99に設定する方が，最適解既知でないときに如実に良くなる．
     elif VOLATILIZATION_MODE == 1:
-        # --- 帯域幅の最小値・最大値を基準に揮発量を調整 ---
-        # エッジの帯域幅が、ローカルな最小・最大帯域幅のどの位置にあるかを計算
-        if local_max_bandwidth == local_min_bandwidth:
-            # 未使用エッジの場合：帯域幅が大きいほど rate が 1 に近づく
-            rate = 0.98
-        else:
-            # 使用済みエッジの場合：帯域幅の相対位置を基準に揮発量を調整
-            normalized_position = (weight_uv - local_min_bandwidth) / max(
-                1, (local_max_bandwidth - local_min_bandwidth)
-            )
-            rate = 0.98 * normalized_position
+        # --- 論文の式に完全に合わせた揮発率計算 ---
+        # rate_ij = V × (w_ij - w_ij^min) / max(1, w_ij^max - w_ij^min)
+        # 論文: "The fraction rate_ij of pheromones retained for the next generation"
+        denominator = max(1, local_max_bandwidth - local_min_bandwidth)
+        numerator = max(0, weight_uv - local_min_bandwidth)  # 負の値を防ぐ
+        rate = V * numerator / denominator
 
     # FIXME: OverflowError: cannot convert float infinity to integer
     elif VOLATILIZATION_MODE == 2:
@@ -221,12 +227,15 @@ def update_pheromone(ant: Ant, graph: nx.Graph) -> None:
         # pheromone_increase = min(ant.width) * 10
 
         graph[u][v]["pheromone"] = min(
-            graph[u][v]["pheromone"] + pheromone_increase, graph[u][v]["max_pheromone"]
+            graph[u][v]["pheromone"] + pheromone_increase,
+            graph[u][v]["max_pheromone"],
         )
 
         # print(f"Update Pheromone: {u} → {v} : {graph[u][v]['pheromone']}")
         # print(
-        #     f"Update Bandwidth: {u} → {v} : {graph[u][v]['local_min_bandwidth']} : {graph[u][v]['local_max_bandwidth']}"
+        #     f"Update Bandwidth: {u} → {v} : "
+        #     f"{graph[u][v]['local_min_bandwidth']} : "
+        #     f"{graph[u][v]['local_max_bandwidth']}"
         # )
 
 
@@ -254,16 +263,22 @@ def ant_next_node(
             pheromones = [graph[ant.current][n]["pheromone"] for n in candidates]
             widths = [graph[ant.current][n]["weight"] for n in candidates]
 
-            # 帯域幅に基づいた重み付け
+            # 論文の式に従った経路選択確率: p_ij = (τ_ij^α · w_ij^β) / Σ(τ_il^α · w_il^β)
+            # α=1, β=1の場合でも明示的に累乗を適用
+            weight_pheromone = [p**ALPHA for p in pheromones]
             weight_width = [w**BETA for w in widths]
-            weights = [p * w for p, w in zip(pheromones, weight_width)]
+            weights = [p * w for p, w in zip(weight_pheromone, weight_width)]
 
             # フェロモン値に基づいて次のノードを選択
             # Option: 帯域幅を考慮しない場合以下の行のコメントアウトを外す
             # weights = pheromones  # フェロモン値のみを考慮
 
-            # 重みに基づいて次のノードを選択
-            next_node = random.choices(candidates, weights=weights, k=1)[0]
+            # 重みが全て0の場合や候補がない場合のフォールバック
+            if not weights or sum(weights) == 0:
+                next_node = random.choice(candidates)
+            else:
+                # 重みに基づいて次のノードを選択
+                next_node = random.choices(candidates, weights=weights, k=1)[0]
 
             # ---antのルートと帯域幅を更新---
             # 次のリンクの帯域幅を取得
@@ -312,15 +327,20 @@ def ant_next_node_aware_generation(
             pheromones = [graph[ant.current][n]["pheromone"] for n in candidates]
             widths = [graph[ant.current][n]["weight"] for n in candidates]
 
-            # フェロモンと帯域幅の影響を調整
+            # 論文の式に従った経路選択確率: p_ij = (τ_ij^α · w_ij^β) / Σ(τ_il^α · w_il^β)
+            # 世代に応じてαを動的に調整（この関数は世代を考慮するバージョン）
             weight_pheromone = [
                 p**alpha for p in pheromones
             ]  # フェロモンの影響を世代で増加
             weight_width = [w**beta for w in widths]
             weights = [p * w for p, w in zip(weight_pheromone, weight_width)]
 
-            # 次のノードを選択
-            next_node = random.choices(candidates, weights=weights, k=1)[0]
+            # 重みが全て0の場合や候補がない場合のフォールバック
+            if not weights or sum(weights) == 0:
+                next_node = random.choice(candidates)
+            else:
+                # 次のノードを選択
+                next_node = random.choices(candidates, weights=weights, k=1)[0]
 
             # Antの状態を更新
             ant.route.append(next_node)
@@ -402,9 +422,12 @@ def load_graph(file_name: str) -> nx.Graph:
     graph = nx.read_edgelist(file_name, data=[("weight", float)], nodetype=int)
     # 読み込んだグラフのエッジに初期フェロモン値を追加
     for u, v in graph.edges():
+        weight = graph[u][v]["weight"]
         graph[u][v]["pheromone"] = MIN_F
-        graph[u][v]["local_min_bandwidth"] = graph[u][v]["weight"]
-        graph[u][v]["local_max_bandwidth"] = graph[u][v]["weight"]
+        graph[u][v]["local_min_bandwidth"] = weight
+        graph[u][v]["local_max_bandwidth"] = weight
+        # 初期帯域幅を保存（変動の基準値として使用）
+        graph[u][v]["original_weight"] = weight
 
     return graph
 
@@ -414,12 +437,16 @@ def ba_graph(num_nodes: int, num_edges: int = 3, lb: int = 1, ub: int = 9) -> nx
     Barabási-Albertモデルでグラフを生成
     - 各エッジに帯域幅(weight)をランダムに設定
     - 各エッジに local_min_bandwidth と local_max_bandwidth を初期化
+    - 初期帯域幅をoriginal_weightとして保存（帯域変動の基準値として使用）
     """
     graph = nx.barabasi_albert_graph(num_nodes, num_edges)
     for u, v in graph.edges():
         # リンクの帯域幅(weight)をランダムに設定
         weight = random.randint(lb, ub) * 10
         graph[u][v]["weight"] = weight
+
+        # 初期帯域幅を保存（変動の基準値として使用）
+        graph[u][v]["original_weight"] = weight
 
         # 各エッジが知り得ている最小・最大帯域幅を初期化
         graph[u][v]["local_min_bandwidth"] = weight
@@ -444,6 +471,7 @@ def make_graph_bidirectional(graph: nx.Graph) -> nx.DiGraph:
         local_min_bandwidth = data["local_min_bandwidth"]
         local_max_bandwidth = data["local_max_bandwidth"]
         pheromone = data["pheromone"]
+        original_weight = data.get("original_weight", weight)  # 帯域変動用
 
         # 双方向エッジを作成
         directed_G.add_edge(
@@ -453,6 +481,7 @@ def make_graph_bidirectional(graph: nx.Graph) -> nx.DiGraph:
             pheromone=pheromone,
             local_min_bandwidth=local_min_bandwidth,
             local_max_bandwidth=local_max_bandwidth,
+            original_weight=original_weight,
         )
         directed_G.add_edge(
             v,
@@ -461,6 +490,7 @@ def make_graph_bidirectional(graph: nx.Graph) -> nx.DiGraph:
             pheromone=pheromone,
             local_min_bandwidth=local_min_bandwidth,
             local_max_bandwidth=local_max_bandwidth,
+            original_weight=original_weight,
         )
 
     return directed_G
@@ -522,9 +552,13 @@ if __name__ == "__main__":
     # ===== ログファイルの初期化 =====
     import os
 
+    # 出力先のCSVファイル名を変更
+    ant_log_filename = "./simulation_result/log_ant_paper_method.csv"
+    interest_log_filename = "./simulation_result/log_interest_paper_method.csv"
+
     log_files = [
-        "./simulation_result/log_ant.csv",
-        "./simulation_result/log_interest.csv",
+        ant_log_filename,
+        interest_log_filename,
     ]
 
     for log_file in log_files:
@@ -535,6 +569,9 @@ if __name__ == "__main__":
         with open(log_file, "w", newline="") as f:
             pass  # 空のファイルを作成
         print(f"ログファイル '{log_file}' を初期化しました。")
+
+    # ===== 変動設定の表示 =====
+    print_fluctuation_settings()
 
     for sim in range(SIMULATIONS):
         num_nodes = 100  # ノードの数
@@ -552,7 +589,16 @@ if __name__ == "__main__":
         # ノードの隣接数と帯域幅に基づいてフェロモンの最小値・最大値を設定
         set_pheromone_min_max_by_degree_and_width(graph)
 
-        # 最適解の計算（比較用）
+        # ★変動エッジを選択 (設定に応じて自動選択)★
+        fluctuating_edges = select_fluctuating_edges(graph)
+
+        # ★変動対象エッジのみ変動モデルの状態を初期化（FLUCTUATION_MODELに応じて自動選択）★
+        edge_states = initialize_fluctuation_states(graph, fluctuating_edges)
+
+        # ★初回の帯域更新も変動対象のみに適用される（FLUCTUATION_MODELに応じて自動選択）★
+        update_available_bandwidth(graph, edge_states, 0)
+
+        # 動的環境での初期最適解の計算（比較用）
         try:
             optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
             optimal_bottleneck = min(
@@ -562,7 +608,7 @@ if __name__ == "__main__":
             print(
                 f"シミュレーション {sim+1}: スタート {START_NODE}, ゴール {GOAL_NODE}"
             )
-            print(f"最適ボトルネック帯域: {optimal_bottleneck}")
+            print(f"動的環境での初期最適ボトルネック帯域: {optimal_bottleneck}")
         except nx.NetworkXNoPath:
             print(f"シミュレーション {sim+1}: 経路が存在しません。スキップします。")
             continue
@@ -574,8 +620,29 @@ if __name__ == "__main__":
         # ログのリスト
         ant_log: list[int] = []
         interest_log: list[int] = []
+        bandwidth_change_log: list[int] = []  # 帯域変動の記録
+        bandwidth_change_count = 0  # 帯域変動の累計回数
 
         for generation in range(GENERATION):
+            # === 変動モデルによる帯域変動（FLUCTUATION_MODELに応じて自動選択）===
+            bandwidth_changed = update_available_bandwidth(
+                graph, edge_states, generation
+            )
+            bandwidth_change_log.append(1 if bandwidth_changed else 0)
+            if bandwidth_changed:
+                bandwidth_change_count += 1
+
+            # === 最適解の再計算（帯域変動後）===
+            try:
+                optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
+                optimal_bottleneck = min(
+                    graph.edges[u, v]["weight"]
+                    for u, v in zip(optimal_path[:-1], optimal_path[1:])
+                )
+            except nx.NetworkXNoPath:
+                # 経路が存在しない場合はスキップ
+                continue
+
             # Antを配置
             ant_list.extend(
                 [Ant(START_NODE, GOAL_NODE, [START_NODE], []) for _ in range(ANT_NUM)]
@@ -601,23 +668,46 @@ if __name__ == "__main__":
                 recent_success_rate = (
                     sum(ant_log[-100:]) / min(len(ant_log), 100) if ant_log else 0
                 )
+                bandwidth_change_rate = (
+                    sum(bandwidth_change_log[-100:])
+                    / min(len(bandwidth_change_log), 100)
+                    if bandwidth_change_log
+                    else 0
+                )
+                # 平均利用率を計算
+                utilizations = [
+                    state.get("utilization", 0.4)
+                    for state in edge_states.values()
+                    if isinstance(state, dict)
+                ]
+                avg_utilization = (
+                    sum(utilizations) / len(utilizations) if utilizations else 0.4
+                )
                 print(
-                    f"世代 {generation}: 最近100回の成功率 = {recent_success_rate:.3f}"
+                    f"世代 {generation}: 成功率 = {recent_success_rate:.3f}, "
+                    f"帯域変化率 = {bandwidth_change_rate:.3f}, "
+                    f"平均利用率 = {avg_utilization:.3f}, "
+                    f"最適値 = {optimal_bottleneck}, "
+                    f"累計変動回数 = {bandwidth_change_count}"
                 )
 
         # 各シミュレーションのログをCSVに保存
-        with open("./simulation_result/log_ant.csv", "a", newline="") as f:
+        with open(ant_log_filename, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(ant_log)
 
-        with open("./simulation_result/log_interest.csv", "a", newline="") as f:
+        with open(interest_log_filename, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(interest_log)
 
         # 最終成功率の表示
         final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
+        total_bandwidth_changes = sum(bandwidth_change_log)
         print(
-            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - 成功率: {final_success_rate:.3f}"
+            f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - "
+            f"成功率: {final_success_rate:.3f}, "
+            f"帯域変動回数: {total_bandwidth_changes}/{GENERATION} "
+            f"({total_bandwidth_changes/GENERATION*100:.1f}%)"
         )
 
     print(f"\n🎉 全{SIMULATIONS}回のシミュレーション完了！")
