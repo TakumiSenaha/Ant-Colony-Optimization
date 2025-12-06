@@ -296,6 +296,24 @@ if __name__ == "__main__":  # noqa: C901
             print("経路が存在しません。スキップします。")
             continue
 
+        # # ★★★ 最適解の経路の帯域幅を100に設定（比較用：コミットccfcd98前の実装を参考）★★★
+        # try:
+        #     optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
+        #     print(f"最適経路: {' -> '.join(map(str, optimal_path))}")
+        #     # 最適経路の各エッジの帯域幅を100に設定（双方向）
+        #     for u, v in zip(optimal_path[:-1], optimal_path[1:]):
+        #         graph[u][v]["weight"] = 100
+        #         graph[v][u]["weight"] = 100
+        #         graph[u][v]["local_min_bandwidth"] = 100
+        #         graph[v][u]["local_min_bandwidth"] = 100
+        #         graph[u][v]["local_max_bandwidth"] = 100
+        #         graph[v][u]["local_max_bandwidth"] = 100
+        #         print(f"Set optimal path edge ({u} → {v}) to weight=100.")
+        #     print(f"最適経路の帯域幅を100に設定しました")
+        # except (nx.NetworkXNoPath, Exception):
+        #     print("最適経路が見つかりませんでした。スキップします。")
+        #     continue
+
         ant_log: list[int] = []
         bandwidth_change_log: list[int] = []  # 帯域変動の記録
         bandwidth_change_count = 0  # 帯域変動の累計回数
