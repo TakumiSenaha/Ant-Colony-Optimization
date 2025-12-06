@@ -35,7 +35,7 @@ GENERATION = 1000  # 総世代数
 SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ（リングバッファサイズ = 観測値数）=====
-TIME_WINDOW_SIZE = 10  # リングバッファサイズ（直近1000個の観測値を記憶）
+TIME_WINDOW_SIZE = 100  # リングバッファサイズ（直近1000個の観測値を記憶）
 PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
 BKB_EVAPORATION_RATE = (
     0.999  # BKB値の揮発率（リングバッファ内の観測値は揮発しないが、BKB値にのみ適用）
@@ -273,7 +273,7 @@ if __name__ == "__main__":  # noqa: C901
         # グラフはシミュレーションごとに一度だけ生成
         # graph = grid_graph(num_nodes=NUM_NODES, lb=1, ub=10)
         # graph = er_graph(num_nodes=NUM_NODES, edge_prob=0.12, lb=1, ub=10)
-        graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=15)
+        graph = ba_graph(num_nodes=NUM_NODES, num_edges=6, lb=1, ub=10)
 
         set_pheromone_min_max_by_degree_and_width(graph)
 

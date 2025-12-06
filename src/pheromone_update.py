@@ -12,7 +12,7 @@ import networkx as nx  # type: ignore[import-untyped]
 
 # ===== 功績ボーナスパラメータ（一元管理） =====
 # ★★★ メイン設定：ここを変更するだけで全ファイルに反映されます ★★★
-ACHIEVEMENT_BONUS: float = 1.5  # BKBを更新した場合のフェロモン増加ボーナス係数
+ACHIEVEMENT_BONUS: float = 2.0  # BKBを更新した場合のフェロモン増加ボーナス係数
 
 
 def calculate_pheromone_increase_simple(bottleneck_bandwidth: int) -> float:
