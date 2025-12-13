@@ -10,6 +10,8 @@ ANT_NUM = 10
 # グラフ描画設定
 AXIS_LABEL_FONTSIZE = 26  # 軸ラベルのフォントサイズ（[%]が見切れないように少し小さく）
 TICK_LABEL_FONTSIZE = 24  # 目盛りラベルのフォントサイズ
+FIGURE_WIDTH = 10  # グラフの横幅（論文形式で統一）
+FIGURE_HEIGHT = 7  # グラフの縦幅（論文形式で統一）
 # ===================
 
 # ===== CSVファイル名 =====
@@ -137,7 +139,7 @@ has_data = any(
 
 if has_data:
     # グラフ描画（論文標準形式：箱型）
-    plt.figure(figsize=(12, 8))  # 4本の線を表示するため少し広めに
+    plt.figure(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
 
     # 1. 既存手法（Environment 1: Ideal - 最大帯域 = 最適解）
     if baseline_traditional_percentages:
@@ -147,7 +149,7 @@ if has_data:
             baseline_traditional_percentages,
             marker="o",
             linestyle="-",
-            color="gray",
+            color="lightgray",
             linewidth=2.0,
             markersize=3,
             label="Previous Method (Environment 1)",
@@ -161,7 +163,7 @@ if has_data:
             baseline_random_percentages,
             marker="o",
             linestyle="--",
-            color="lightgray",
+            color="gainsboro",
             linewidth=2.0,
             markersize=3,
             label="Previous Method (Environment 2)",
@@ -189,7 +191,7 @@ if has_data:
             proposed_random_percentages,
             marker="s",
             linestyle="--",
-            color="dimgray",
+            color="gray",
             linewidth=2.0,
             markersize=3,
             label="Proposed Method (Environment 2)",
@@ -296,7 +298,7 @@ if has_data:
 
     if has_fluctuation_data:
         # グラフ描画（論文標準形式：箱型）
-        plt.figure(figsize=(10, 7))
+        plt.figure(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
 
         # 既存手法（帯域変動環境）
         if baseline_fluctuation_percentages:
@@ -306,7 +308,7 @@ if has_data:
                 baseline_fluctuation_percentages,
                 marker="o",
                 linestyle="-",
-                color="gray",
+                color="lightgray",
                 linewidth=2.0,
                 markersize=3,
                 label="Previous Method (Fluctuation Environment)",
