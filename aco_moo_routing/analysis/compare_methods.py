@@ -71,6 +71,7 @@ python aco_moo_routing/analysis/compare_methods.py \
      - 最良解発見能力を評価
 
 【手法名のマッピング】
+  - conventional: ACS (Ant Colony System)
   - basic_aco_no_heuristic: Basic ACO w/o Heuristic (β=0)
   - basic_aco_with_heuristic: Basic ACO w/ Heuristic (β=1)
   - previous: Previous Method (Edge-based learning)
@@ -105,17 +106,17 @@ METHOD_LABELS = {
     "basic_aco_with_heuristic": "Basic ACO w/ Heuristic",
     "previous": "Previous Method",
     "proposed": "Proposed Method",
-    "conventional": "Conventional",  # 後方互換性のため
+    "conventional": "ACS",  # Ant Colony System
 }
 
 # 色のマッピング（モノクロ、提案手法が一番黒、それ以外は段階的に灰色）
-# 順序: proposed (黒) > previous (濃いグレー) > basic_aco_with_heuristic (中グレー) > basic_aco_no_heuristic (薄いグレー)
+# 順序: proposed (黒) > previous (濃いグレー) > conventional (ACS) > basic_aco_with_heuristic (中グレー) > basic_aco_no_heuristic (薄いグレー)
 METHOD_COLORS = {
     "proposed": "black",  # 一番黒（提案手法）
     "previous": "dimgray",  # 濃いグレー（先行研究）
+    "conventional": "darkgray",  # 濃いグレー（ACS）
     "basic_aco_with_heuristic": "gray",  # 中程度のグレー（基本ACO w/ ヒューリスティック）
     "basic_aco_no_heuristic": "lightgray",  # 薄いグレー（基本ACO w/o ヒューリスティック）
-    "conventional": "darkgray",  # 従来手法（後方互換性のため）
 }
 
 # 線スタイルのマッピング（環境ごと）
@@ -273,9 +274,7 @@ def quality_scores_max(
             start = g * ants
             end = start + ants
             chunk = sim[start:end]
-            sim_scores = [
-                row[col] for row in chunk if len(row) > col and row[col] >= 0
-            ]
+            sim_scores = [row[col] for row in chunk if len(row) > col and row[col] >= 0]
             if sim_scores:
                 max_scores_per_sim.append(max(sim_scores))
         if max_scores_per_sim:
@@ -357,6 +356,7 @@ def plot_series(
     plt.savefig(str(out_svg), format="svg")
     print(f"✅ グラフを保存しました: {out_eps}")
     print(f"✅ グラフを保存しました: {out_svg}")
+    plt.show()  # プレビュー表示
     plt.close()
 
 
@@ -467,11 +467,7 @@ def main():
         return
 
     # 出力ディレクトリとファイル名を決定
-    out_dir = (
-        Path(args.output_dir)
-        if args.output_dir
-        else results_root / "analysis"
-    )
+    out_dir = Path(args.output_dir) if args.output_dir else results_root / "analysis"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ファイル名を生成（手法名と環境名を含める）
@@ -499,4 +495,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

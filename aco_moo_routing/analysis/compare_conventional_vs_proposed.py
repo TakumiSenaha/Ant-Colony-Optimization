@@ -271,7 +271,8 @@ def plot_series(
     # 提案手法を黒、既存手法をグレーに
     color_map = {
         "Proposed": "black",
-        "Conventional": "lightgray",
+        "ACS": "darkgray",  # Ant Colony System
+        "Conventional": "darkgray",  # 後方互換性のため
     }
 
     for idx, (label, values) in enumerate(series.items()):
@@ -326,6 +327,7 @@ def plot_series(
     plt.savefig(str(out_svg), format="svg")
     print(f"✅ グラフを保存しました: {out_eps}")
     print(f"✅ グラフを保存しました: {out_svg}")
+    plt.show()  # プレビュー表示
     plt.close()
 
 
@@ -382,7 +384,7 @@ def main():
     for env in args.environments:
         series: Dict[str, List[float]] = {}
         for method, label in [
-            ("conventional", "Conventional"),
+            ("conventional", "ACS"),  # Ant Colony System
             ("proposed", "Proposed"),
         ]:
             path = results_root / method / env / args.opt_type / "ant_solution_log.csv"
