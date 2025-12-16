@@ -2,7 +2,13 @@
 グラフモジュール
 
 NetworkXをベースとしたグラフの生成と管理を行います。
-各ノードにNodeLearning機能を統合します。
+各ノードにNodeLearning機能を統合し、ACOルーティングに必要な機能を提供します。
+
+【主要機能】
+1. グラフ生成：Barabási-Albert、Erdős-Rényi、Grid、Manualトポロジをサポート
+2. エッジ属性管理：帯域、遅延、フェロモンの初期化と更新
+3. ノード学習機能：各ノードにNodeLearningインスタンスを付与
+4. フェロモン管理：フェロモンの更新、揮発、取得
 """
 
 import random
@@ -14,13 +20,36 @@ from .node import NodeLearning
 
 
 class RoutingGraph:
-    """ACOルーティング用のグラフクラス（NetworkXラッパー）"""
+    """
+    ACOルーティング用のグラフクラス（NetworkXラッパー）
+
+    NetworkXのGraphオブジェクトをラップし、ACOルーティングに必要な機能を提供します。
+    各ノードにはNodeLearningインスタンスが付与され、分散学習が可能です。
+
+    Attributes:
+        num_nodes (int): ノード数
+        config (Dict): 設定辞書（config.yamlから読み込んだもの）
+        graph (nx.Graph): NetworkXのGraphオブジェクト
+        node_learning (Dict[int, NodeLearning]): ノードIDをキーとするNodeLearningインスタンスの辞書
+
+    Example:
+        >>> config = {"graph": {"num_nodes": 100, "num_edges": 6, ...}, ...}
+        >>> graph = RoutingGraph(num_nodes=100, config=config)
+        >>> graph.get_edge_attributes(0, 1)
+        {"bandwidth": 50.0, "delay": 5.0, "pheromone": 100}
+    """
 
     def __init__(self, num_nodes: int, config: Dict):
         """
+        グラフを初期化します。
+
         Args:
-            num_nodes: ノード数
+            num_nodes: ノード数（設定ファイルの値と一致させる必要があります）
             config: 設定辞書（config.yamlから読み込んだもの）
+
+        Note:
+            - グラフ生成後、各ノードにNodeLearningインスタンスが自動的に付与されます
+            - エッジ属性（帯域、遅延、フェロモン）は自動的に初期化されます
         """
         self.num_nodes = num_nodes
         self.config = config
@@ -34,10 +63,20 @@ class RoutingGraph:
 
     def _generate_graph(self) -> nx.Graph:
         """
-        グラフを生成し、エッジ属性（帯域、遅延、フェロモン）を初期化
+        グラフを生成し、エッジ属性（帯域、遅延、フェロモン）を初期化します。
 
         Returns:
-            生成されたグラフ
+            生成されたNetworkXのGraphオブジェクト
+
+        Note:
+            サポートされているグラフタイプ:
+            - "barabasi_albert": Barabási-Albertモデル（スケールフリーネットワーク）
+            - "erdos_renyi": Erdős-Rényiモデル（ランダムグラフ）
+            - "grid": 2次元グリッドグラフ
+            - "manual": 手動設定トポロジ（BAモデルで生成後、最適経路を100Mbpsに設定）
+
+        Raises:
+            ValueError: 未知のグラフタイプが指定された場合
         """
         graph_type = self.config["graph"]["graph_type"]
         num_nodes = self.config["graph"]["num_nodes"]
@@ -56,6 +95,11 @@ class RoutingGraph:
             # ノードをint型に変換
             mapping = {(i, j): i * side + j for i in range(side) for j in range(side)}
             graph = nx.relabel_nodes(graph, mapping)
+        elif graph_type == "manual":
+            # 手動設定トポロジ：BAモデルで生成し、後で最適経路を100Mbpsに設定
+            # 最適経路の設定はrun_experiment.pyで行う
+            num_edges = self.config["graph"]["num_edges"]
+            graph = nx.barabasi_albert_graph(num_nodes, num_edges)
         else:
             raise ValueError(f"Unknown graph type: {graph_type}")
 
@@ -66,10 +110,16 @@ class RoutingGraph:
 
     def _initialize_edge_attributes(self, graph: nx.Graph) -> None:
         """
-        エッジ属性（帯域、遅延、フェロモン）を初期化
+        エッジ属性（帯域、遅延、フェロモン）を初期化します。
 
         Args:
-            graph: 初期化するグラフ
+            graph: 初期化するNetworkXのGraphオブジェクト
+
+        Note:
+            - 帯域幅: 10Mbps刻みでランダムに生成（設定ファイルのbandwidth_rangeに基づく）
+            - 遅延: 1ms刻みでランダムに生成（設定ファイルのdelay_rangeに基づく）
+            - フェロモン: 最小値で初期化（後でノードの次数と帯域に基づいて最大値が設定される）
+            - 先行研究用: local_min_bandwidthとlocal_max_bandwidthも初期化
         """
         bw_range = self.config["graph"]["bandwidth_range"]
         delay_range = self.config["graph"]["delay_range"]
@@ -86,10 +136,8 @@ class RoutingGraph:
             graph.edges[u, v]["bandwidth"] = float(bandwidth)
             graph.edges[u, v]["original_bandwidth"] = float(bandwidth)  # 変動の基準値
 
-            # 遅延（ms）: 10刻みで生成（10, 20, 30, ..., 100）
-            min_delay = delay_range[0] // 10  # 10
-            max_delay = delay_range[1] // 10  # 10
-            base_delay = random.randint(min_delay, max_delay) * 10
+            # 遅延（ms）: 1刻みで生成（1, 2, 3, ..., 10）
+            base_delay = random.randint(int(delay_range[0]), int(delay_range[1]))
             graph.edges[u, v]["delay"] = float(base_delay)
             graph.edges[u, v]["original_delay"] = float(base_delay)
 
@@ -97,6 +145,11 @@ class RoutingGraph:
             graph.edges[u, v]["pheromone"] = min_pheromone
             graph.edges[u, v]["min_pheromone"] = min_pheromone  # 一時的な値
             graph.edges[u, v]["max_pheromone"] = max_pheromone  # 一時的な値
+
+            # 先行研究（Previous Method）用：エッジベースの学習値
+            # 初期値はエッジの帯域幅に設定
+            graph.edges[u, v]["local_min_bandwidth"] = float(bandwidth)
+            graph.edges[u, v]["local_max_bandwidth"] = float(bandwidth)
 
         # 既存実装と同じ方法でフェロモン最小値・最大値を設定
         self._set_pheromone_min_max_by_degree_and_width(graph, min_pheromone)
@@ -130,26 +183,32 @@ class RoutingGraph:
 
     def get_neighbors(self, node: int) -> List[int]:
         """
-        指定されたノードの隣接ノードを取得
+        指定されたノードの隣接ノードを取得します。
 
         Args:
             node: ノードID
 
         Returns:
-            隣接ノードのリスト
+            隣接ノードIDのリスト
+
+        Note:
+            アリの経路選択時に、次の移動先候補として使用されます。
         """
         return list(self.graph.neighbors(node))
 
     def get_edge_attributes(self, u: int, v: int) -> Dict[str, float]:
         """
-        エッジの属性（帯域、遅延、フェロモン）を取得
+        エッジの属性（帯域、遅延、フェロモン）を取得します。
 
         Args:
-            u: ノードu
-            v: ノードv
+            u: ノードuのID
+            v: ノードvのID
 
         Returns:
-            エッジ属性の辞書
+            エッジ属性の辞書。キーは "bandwidth", "delay", "pheromone"
+
+        Raises:
+            KeyError: エッジ(u, v)が存在しない場合
         """
         return {
             "bandwidth": self.graph.edges[u, v]["bandwidth"],
@@ -161,13 +220,17 @@ class RoutingGraph:
         self, u: int, v: int, delta_pheromone: float, bidirectional: bool = True
     ) -> None:
         """
-        フェロモンを更新
+        フェロモンを更新します。
 
         Args:
-            u: ノードu
-            v: ノードv
-            delta_pheromone: 付加するフェロモン量
-            bidirectional: 双方向に更新するか
+            u: ノードuのID
+            v: ノードvのID
+            delta_pheromone: 付加するフェロモン量（正の値）
+            bidirectional: 双方向に更新するか。Trueの場合、エッジ(u, v)と(v, u)の両方に更新
+
+        Note:
+            - フェロモン値はmin_pheromoneとmax_pheromoneの範囲内に制限されます
+            - 双方向更新により、無向グラフとしての対称性が保たれます
         """
         # u -> v
         new_pheromone = self.graph.edges[u, v]["pheromone"] + delta_pheromone
@@ -188,10 +251,15 @@ class RoutingGraph:
 
     def evaporate_pheromone(self, evaporation_rate: float) -> None:
         """
-        全エッジのフェロモンを揮発
+        全エッジのフェロモンを揮発させます。
 
         Args:
-            evaporation_rate: 揮発率（0.0 ~ 1.0）
+            evaporation_rate: 揮発率（0.0 ~ 1.0）。1.0に近いほど揮発が激しくなります
+
+        Note:
+            - 各エッジのフェロモン値が (1 - evaporation_rate) 倍されます
+            - フェロモン値はmin_pheromoneを下回らないように制限されます
+            - 世代終了時に呼び出され、古い情報を忘却します
         """
         for u, v in self.graph.edges():
             current = self.graph.edges[u, v]["pheromone"]
@@ -208,6 +276,15 @@ class RoutingGraph:
         """
         for node_learning in self.node_learning.values():
             node_learning.evaporate(evaporation_rate)
+
+    def reset_node_learning(self) -> None:
+        """
+        全ノードの学習値（BKB/BLD/BKH）をリセット
+
+        スタートノード切り替え時などに使用
+        """
+        for node_learning in self.node_learning.values():
+            node_learning.reset()
 
     def __getitem__(self, node: int) -> NodeLearning:
         """
