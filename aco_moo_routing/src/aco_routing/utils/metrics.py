@@ -8,7 +8,16 @@ from typing import List, Optional, Tuple
 
 
 class MetricsCalculator:
-    """評価指標を計算するクラス"""
+    """
+    評価指標を計算するクラス
+
+    - パレート到達率、支配率、Hypervolume、収束率を計算
+    - 目的関数の組み合わせに依存せず利用可能
+
+    Attributes:
+        reference_point (List[float]): Hypervolume計算用の基準点 [bandwidth, delay, hops]
+        target_objectives (List[str]): 最適化対象の目的関数のリスト
+    """
 
     def __init__(
         self,
@@ -324,3 +333,46 @@ class MetricsCalculator:
             rate = self.calculate_pareto_discovery_rate(solutions, optimal_solutions)
             convergence_rates.append(rate)
         return convergence_rates
+
+    def calculate_pch_at_k(
+        self,
+        aco_ranking: List[Tuple[Tuple[float, float, int], float, int]],
+        optimal_solutions: List[Tuple[float, float, int]],
+        k: int,
+    ) -> float:
+        """
+        PCH@K (Pareto Coverage at K) を計算
+
+        PCH@K = (一致した真のパレート解の数 / K) × 100
+
+        Args:
+            aco_ranking: ACOが見つけた解のランキング [(path, selection_rate, count), ...]
+                        選択率で降順にソート済み
+            optimal_solutions: 真のパレート最適解のリスト
+            k: 上位K個の解を評価
+
+        Returns:
+            PCH@K (0.0 ~ 100.0)
+        """
+        if not optimal_solutions or k == 0:
+            return 0.0
+
+        # 上位K個の解を取得
+        top_k_solutions = [path for path, _, _ in aco_ranking[:k]]
+
+        # 上位K個の解のうち、最適解と一致する数をカウント
+        matched_count = 0
+        for path in top_k_solutions:
+            b, d, h = path
+            for opt_b, opt_d, opt_h in optimal_solutions:
+                # 完全一致（誤差を許容）
+                bandwidth_match = abs(b - opt_b) < max(0.01, opt_b * 0.01)
+                delay_match = abs(d - opt_d) < max(0.1, opt_d * 0.01)
+                hops_match = h == opt_h
+                if bandwidth_match and delay_match and hops_match:
+                    matched_count += 1
+                    break
+
+        # PCH@K = (一致した真のパレート解の数 / K) × 100
+        pch_at_k = (matched_count / k) * 100
+        return pch_at_k
