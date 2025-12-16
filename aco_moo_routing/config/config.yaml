@@ -54,8 +54,15 @@ aco:
   beta_delay: 1.0
   beta_hops: 1.0
 
-  # ε-Greedy法
-  epsilon: 0.1 # ランダム行動の固定確率
+  # 状態遷移ルール
+  # ACS方式のPseudo-Random-Proportional Rule（従来手法用）
+  q0: 0.9 # 最良エッジを選択する確率（0.0-1.0）。大きいほどexploitation（活用）が強い
+
+  # ACS方式のローカル更新用パラメータ（従来手法用）
+  local_update_xi: 0.1 # ローカル更新の強度（0.0-1.0）
+  initial_pheromone: 100.0 # 初期フェロモン値τ_0
+
+  epsilon: 0.1 # ε-Greedy法（提案手法・先行研究手法で使用）
 
   # 異質なアリ（Heterogeneous Ants）の設定
   # 注意: 現在は未使用。全てのアリは同じパラメータ（beta_bandwidth=1.0, beta_delay=1.0）で経路を選択します。
