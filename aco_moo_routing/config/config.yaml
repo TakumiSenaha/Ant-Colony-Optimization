@@ -5,22 +5,47 @@ experiment:
   generations: 1000
   num_ants: 10
   simulations: 100
-  target_objectives: ["bandwidth", "delay", "hops"] # "hops" を追加可能 (Step 1: ["bandwidth", "hops"], Step 3: ["bandwidth", "delay", "hops"])
+  target_objectives: ["bandwidth"] # "hops" を追加可能 (Step 1: ["bandwidth", "hops"], Step 3: ["bandwidth", "delay", "hops"])
+
+  # 遅延制約（パレート最適化の前段階として使用）
+  delay_constraint:
+    enabled: false # 遅延制約を有効にするか
+    max_delay: 10.0 # 最大遅延（ms）。この値以下の遅延を持つ経路のみを探索対象とする
+
+  # スタートノード切り替え設定
+  start_switching:
+    enabled: false # スタートノードを切り替えるかどうか（遅延制約テスト時はfalse）
+    switch_interval: 100 # 何世代ごとにスタートノードを切り替えるか
+    start_nodes: [] # スタートノードのリスト（空の場合は自動生成、例: [0, 10, 20, 30, 40, 50]）
 
 graph:
   num_nodes: 100
-  num_edges: 3 # BA modelのm（各ノードが追加する際のエッジ数）
-  graph_type: "barabasi_albert" # "barabasi_albert", "erdos_renyi", "grid"
-  bandwidth_range: [10, 200] # Mbps (既存実装: random.randint(1, 15) * 10)
-  delay_range: [10, 100] # ms (base delay, 10刻み)
+  num_edges: 6 # BA modelのm（各ノードが追加する際のエッジ数）
+  graph_type: "barabasi_albert" # "barabasi_albert", "erdos_renyi", "grid", "manual"
+  # "manual": 手動設定トポロジ（Environment 1）
+  # BAモデルで生成後、最適経路の全リンクを100Mbpsに設定
+  # それ以外のリンクは10-90Mbpsのランダム
+  bandwidth_range: [10, 100] # Mbps (既存実装: random.randint(1, 15) * 10)
+  delay_range: [1, 10] # ms (base delay, 1刻み)
   fluctuation:
     enabled: false # 変動なし環境でテスト（既存実装との比較用）
     model: "ar1" # "ar1", "ar2", "markov_chain", "random_walk"
     target_method: "hub" # "hub", "random", "betweenness"
     target_percentage: 0.1 # 上位10%のハブノード
-    update_interval: 10000
+    update_interval: 1
 
 aco:
+  # ACO手法の選択
+  # "proposed" (提案手法)
+  # "conventional" (従来手法、beta_bandwidthの値で動作が変わる)
+  # "basic_aco_no_heuristic" (従来手法1：基本ACO、β=0、ヒューリスティックなし)
+  # "basic_aco_with_heuristic" (従来手法2：基本ACO、β=1、ヒューリスティックあり)
+  # "previous" (先行研究：エッジベースの学習、w_ij^min/w_ij^maxを使用)
+  method: "proposed"
+
+  # 従来手法用のパラメータ（method: "conventional" の場合に使用）
+  q_factor: 1.0 # フェロモン付加量の調整係数（Δτ = Q * B_k）
+
   # フェロモンの影響度
   alpha: 1.0
 
@@ -32,6 +57,16 @@ aco:
   # ε-Greedy法
   epsilon: 0.1 # ランダム行動の固定確率
 
+  # 異質なアリ（Heterogeneous Ants）の設定
+  # 注意: 現在は未使用。全てのアリは同じパラメータ（beta_bandwidth=1.0, beta_delay=1.0）で経路を選択します。
+  # heterogeneous_ants:
+  #   enabled: false # 異質なアリを使用するか
+  #   bandwidth_preference_weight: 2.0 # 帯域重視のアリの帯域重み
+  #   bandwidth_preference_delay_weight: 0.5 # 帯域重視のアリの遅延重み
+  #   delay_preference_weight: 0.5 # 遅延重視のアリの帯域重み
+  #   delay_preference_delay_weight: 2.0 # 遅延重視のアリの遅延重み
+  #   bandwidth_preference_ratio: 0.5 # 帯域重視のアリの割合（0.0-1.0）
+
   # フェロモン関連
   evaporation_rate: 0.02 # 揮発率（1 - 残存率0.98）
   min_pheromone: 100
@@ -42,8 +77,8 @@ aco:
 
   # 学習パラメータ
   learning:
-    bkb_window_size: 10 # リングバッファサイズ（BKB/BLD/BKH共通）
-    bonus_factor: 1.5 # 功績ボーナス係数
+    bkb_window_size: 100 # リングバッファサイズ（BKB/BLD/BKH共通）
+    bonus_factor: 2.0 # 功績ボーナス係数
     penalty_factor: 0.5 # BKBベースペナルティ係数
     volatilization_mode: 3 # 3: BKBベースのペナルティ付き揮発
     bkb_evaporation_rate: 0.001 # BKB値の揮発率（1 - 残存率0.999）
@@ -70,4 +105,3 @@ output:
   save_graphs: true # グラフを保存するか
   results_dir: "results"
   log_level: "INFO" # "DEBUG", "INFO", "WARNING", "ERROR"
-
