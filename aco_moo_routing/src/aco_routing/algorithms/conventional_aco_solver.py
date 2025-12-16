@@ -2,17 +2,19 @@
 従来手法（Conventional Method）ACO Solverモジュール
 
 【従来手法の概要】
-基本的なAnt System (AS)をMBL問題に適用した実装です。
-Mapisse et al. (2011)やDorigo et al. (1996)の手法をベースに、
-ボトルネック帯域に比例したフェロモン更新を行います。
+Ant Colony System (ACS)をMBL問題に適用した実装です。
+Dorigo & Gambardella (1997)の手法をベースに、中央集権的なGlobal Best更新を採用します。
 
-【提案手法との違い】
-- フェロモン更新: Δτ = Q * B_k（ボトルネック帯域値のみを付与、シンプル）
-- 更新タイミング: アリがゴールに到達した時点で即座に付加（オンライン更新、提案手法と同じ）
-- フェロモン揮発: 世代ごとに定期揮発のみ（ペナルティなし、提案手法と同じタイミング）
+【ACS方式の特徴】
+- 状態遷移: Pseudo-random-proportional rule（q0で最良エッジ選択）
+- グローバル更新: 世代終了時に最良アリのみがフェロモンを更新（中央集権的）
+- ローカル更新: 解構築中に訪問エッジのフェロモンを即座に減少
 - ノード学習機能（BKB/BLD/BKH）は使用しない
 - 功績ボーナス/ペナルティは使用しない
-- パス選択時はフェロモンのみを考慮（帯域は考慮しない）
+
+【提案手法との違い】
+- 更新タイミング: 世代終了時にGlobal Bestのみが更新（提案手法は全アリが即座に更新）
+- 完全分散ではない: 全アリの解を比較して最良を選択する必要がある
 """
 
 import random
@@ -40,12 +42,14 @@ class ConventionalACOSolver:
     """
     従来手法（Conventional Method）ACOソルバークラス
 
-    基本的なAnt System (AS)をMBL問題に適用した実装です。
+    Ant Colony System (ACS)をMBL問題に適用した実装です。
     特徴:
+    - 状態遷移: Pseudo-random-proportional rule（q0で最良エッジ選択）
+    - グローバル更新: 世代終了時に最良アリのみがフェロモンを更新（中央集権的）
+    - ローカル更新: 解構築中に訪問エッジのフェロモンを即座に減少
     - フェロモン更新: Δτ = Q * B_k（ボトルネック帯域に比例）
     - ノード学習機能（BKB/BLD/BKH）は使用しない
     - 功績ボーナス/ペナルティは使用しない
-    - 単純な定率揮発のみ
 
     Attributes:
         config (Dict): 設定辞書
@@ -55,9 +59,14 @@ class ConventionalACOSolver:
         pheromone_evaporator (SimplePheromoneEvaporator): フェロモン揮発ロジック（定率）
         fluctuation_model (Optional[BandwidthFluctuationModel]): 帯域変動モデル（未使用ならNone）
         alpha (float): フェロモンの重み
-        beta_bandwidth (float): 帯域ヒューリスティックの重み（0:なし、1:あり）
-        epsilon (float): ε-Greedyの確率
+        beta_bandwidth (float): 帯域ヒューリスティックの重み
+        beta_delay (float): 遅延ヒューリスティックの重み
+        q0 (float): Pseudo-Random-Proportional Ruleの確率（最良エッジを選択する確率）
         ttl (int): アリの最大ステップ数
+        global_best_solution (Optional[Tuple[float, float, int]]): Global Best解（実験開始から現在まで）
+        global_best_ant (Optional[Ant]): Global Best解に対応するアリ
+        local_update_xi (float): ローカル更新の強度
+        initial_pheromone (float): 初期フェロモン値τ_0
     """
 
     def __init__(self, config: Dict, graph: RoutingGraph):
@@ -86,13 +95,23 @@ class ConventionalACOSolver:
         self.alpha = config["aco"]["alpha"]
         self.beta_bandwidth = config["aco"]["beta_bandwidth"]
         self.beta_delay = config["aco"]["beta_delay"]
-        self.epsilon = config["aco"]["epsilon"]
+        self.q0 = config["aco"].get(
+            "q0", 0.9
+        )  # ACS方式のPseudo-random-proportional rule
         self.ttl = config["aco"]["ttl"]
+
+        # ACS方式のローカル更新用パラメータ
+        self.local_update_xi = config["aco"].get("local_update_xi", 0.1)
+        self.initial_pheromone = config["aco"].get("initial_pheromone", 100.0)
 
         # 遅延制約
         delay_constraint = config["experiment"].get("delay_constraint", {})
         self.delay_constraint_enabled = delay_constraint.get("enabled", False)
         self.max_delay = delay_constraint.get("max_delay", float("inf"))
+
+        # Global Best（実験開始から現在までの最良解）
+        self.global_best_solution: Optional[Tuple[float, float, int]] = None
+        self.global_best_ant: Optional[Ant] = None
 
     def _initialize_fluctuation_model(self) -> None:
         """帯域変動モデルを初期化"""
@@ -139,6 +158,10 @@ class ConventionalACOSolver:
             optimal_solutions = []
         results = []
         ant_log = []  # 各アリが到達した時の成功/失敗を記録
+
+        # 【Global Bestの初期化】実験開始時にリセット
+        self.global_best_solution = None
+        self.global_best_ant = None
 
         # スタートノード切り替えの設定を取得
         start_switching_config = self.config["experiment"].get("start_switching", {})
@@ -486,9 +509,9 @@ class ConventionalACOSolver:
             # ゴール判定用のセット（高速検索のため）
             goal_nodes_set = set(goal_nodes)
 
-            # 【アリの探索ループ】完全分散方式：アリがゴールに到達した時点で即座にフェロモンを更新
-            # これにより、他のアリの探索に即座に影響を与え、学習が加速する
+            # 【アリの探索ループ】ACS方式：解構築中にローカル更新、世代終了時にGlobal Best更新
             generation_solutions = []
+            generation_ants = []  # ゴール到達したアリを保存（Global Best選択用）
             active_ants = list(ants)  # アクティブなアリのリスト
 
             while active_ants:
@@ -526,15 +549,23 @@ class ConventionalACOSolver:
                                 ant_log.append(-1)  # -1 = ゴール未到達（制約違反）
                                 continue
 
+                        # 移動前のノードを記録（ローカル更新用）
+                        previous_node = ant.current_node
+
                         # 移動（ボトルネック帯域、累積遅延、ホップ数を更新）
                         ant.move_to(
                             next_node, edge_attr["bandwidth"], edge_attr["delay"]
                         )
 
+                        # 【ローカル更新】ACS方式：訪問エッジのフェロモンを即座に減少
+                        # 式: τ_ij ← (1-ξ)τ_ij + ξτ_0
+                        # 移動前のノードから移動後のノードへのエッジを更新
+                        self._apply_local_update(previous_node, next_node)
+
                         # 移動後に再度ゴール判定（移動先がゴールだった場合）
                         has_reached_any_goal = ant.current_node in goal_nodes_set
 
-                    # 【ゴール到達時の処理】即座にフェロモンを更新（完全分散方式）
+                    # 【ゴール到達時の処理】解を記録するだけ（フェロモン更新は世代終了時）
                     if has_reached_any_goal:
                         solution = ant.get_solution()
 
@@ -548,10 +579,7 @@ class ConventionalACOSolver:
                                 continue
 
                         generation_solutions.append(solution)
-
-                        # 【フェロモン更新】ボトルネック帯域に比例したフェロモンを付加
-                        # ノード学習は行わない（従来手法の特徴）
-                        self.pheromone_updater.update_from_ant(ant, self.graph)
+                        generation_ants.append(ant)  # Global Best選択用に保存
 
                         # 【ログ記録】最適解判定結果を記録
                         # 0 = 最適解、-1 = ゴール未到達、-2 = ゴール到達したが最適解ではない
@@ -589,17 +617,6 @@ class ConventionalACOSolver:
                                 # 最適解が計算されていない場合（初期世代など）
                                 log_value = -1
                         elif optimal_solutions and metrics_calculator:
-                            # 【多目的最適化】パレート最適化または遅延制約が有効な場合
-                            # 見つけた解がパレートフロンティアのどの解に対応するかを判定
-                            optimal_index = (
-                                metrics_calculator.find_optimal_solution_index(
-                                    solution, optimal_solutions
-                                )
-                            )
-                            # 0以上 = 最適解のインデックス、None = 非最適解（-2に変換）
-                            log_value = (
-                                optimal_index if optimal_index is not None else -2
-                            )
                             # 【多目的最適化】パレート最適化の場合
                             # 見つけた解がパレートフロンティアのどの解に対応するかを判定
                             optimal_index = (
@@ -618,9 +635,57 @@ class ConventionalACOSolver:
                         ant_log.append(log_value)
                         active_ants.remove(ant)
 
-            # 【フェロモン揮発】世代終了時に全エッジのフェロモンを揮発
-            # 従来手法では、単純な定率揮発のみ（ペナルティ付き揮発は使用しない）
+            # 【グローバル更新】ACS方式：世代終了時に最良アリのみがフェロモンを更新
+            # 論文の式(4): τ_ij ← (1-ρ)τ_ij + ρΔτ_ij
+            # 全アリの解を比較して最良を選択（中央集権的）
+            if generation_ants:
+                # 最良のアリを選択（MBL問題ではボトルネック帯域が最大のもの）
+                best_ant = None
+                if self.delay_constraint_enabled:
+                    # 遅延制約あり：帯域が最大で、その中で遅延が最小
+                    valid_ants = [
+                        (ant, ant.get_solution())
+                        for ant in generation_ants
+                        if ant.get_solution()[1] <= self.max_delay
+                    ]
+                    if valid_ants:
+                        best_ant, _ = max(
+                            valid_ants,
+                            key=lambda x: (x[1][0], -x[1][1]),  # (bandwidth, -delay)
+                        )
+                else:
+                    # 遅延制約なし：ボトルネック帯域が最大
+                    best_ant, _ = max(
+                        [(ant, ant.get_solution()) for ant in generation_ants],
+                        key=lambda x: x[1][0],  # bandwidth
+                    )
+
+                # Global Bestを更新（実験開始から現在までの最良解）
+                if best_ant is not None:
+                    best_solution = best_ant.get_solution()
+
+                    if (
+                        self.global_best_solution is None
+                        or best_solution[0] > self.global_best_solution[0]
+                        or (
+                            abs(best_solution[0] - self.global_best_solution[0]) < 1e-6
+                            and self.delay_constraint_enabled
+                            and best_solution[1] < self.global_best_solution[1]
+                        )
+                    ):
+                        self.global_best_solution = best_solution
+                        self.global_best_ant = best_ant
+
+            # 【ACS方式のGlobal Updating Rule】論文の式(4)に従う
+            # 1. まず全エッジを揮発: τ_ij ← (1-ρ)τ_ij
+            # 2. その後、Global Bestの経路にフェロモンを付加: τ_ij ← τ_ij + ρ/L_gb
+            # 論文では「毎世代、Global Bestの経路に更新」とあるため、
+            # Global Bestが更新されなくても、現在のGlobal Bestの経路に更新する
             self.pheromone_evaporator.evaporate(self.graph)
+
+            # Global Bestが存在する場合、その経路にフェロモンを付加
+            if self.global_best_ant is not None:
+                self.pheromone_updater.update_from_ant(self.global_best_ant, self.graph)
 
             # 【ノード学習値の揮発】従来手法ではノード学習機能を使用しないため、揮発処理は不要
 
@@ -663,11 +728,11 @@ class ConventionalACOSolver:
 
     def _select_next_node(self, ant: Ant) -> Optional[int]:
         """
-        ε-Greedy法で次のノードを選択
+        ACS方式のPseudo-Random-Proportional Ruleで次のノードを選択
 
-        【ε-Greedy戦略】
-        - 確率εでランダム選択（探索）：局所最適解への収束を防ぐ
-        - 確率(1-ε)で確率的選択（活用）：フェロモンのみに基づく（従来手法）
+        【Pseudo-Random-Proportional Rule】
+        - 確率q0で最良エッジを確定的に選択（exploitation）：τ_ij^α * η_ij^βが最大のエッジ
+        - 確率(1-q0)で確率的選択（biased exploration）：フェロモンとヒューリスティックに基づく
 
         【遅延制約】
         遅延制約が有効な場合、制約を満たさない候補ノードは除外される。
@@ -697,14 +762,14 @@ class ConventionalACOSolver:
         if not candidates:
             return None
 
-        # ε-Greedy選択
-        if random.random() < self.epsilon:
-            # 【探索】ランダム選択：新しい経路を発見する可能性を維持
-            return random.choice(candidates)
+        # 【Pseudo-Random-Proportional Rule】
+        q = random.random()  # 0.0 ~ 1.0の乱数
+
+        if q < self.q0:
+            # 【Exploitation】確率q0で最良エッジを確定的に選択
+            return self._select_best_edge(ant, candidates)
         else:
-            # 【活用】確率的選択
-            # beta_bandwidth=0: フェロモンのみ（従来手法1）
-            # beta_bandwidth>0: フェロモン+ヒューリスティック（従来手法2）
+            # 【Biased Exploration】確率(1-q0)で確率的選択
             return self._probabilistic_selection(ant, candidates)
 
     def _probabilistic_selection(self, ant: Ant, candidates: List[int]) -> int:
@@ -751,3 +816,80 @@ class ConventionalACOSolver:
 
         # 確率的に選択
         return random.choices(candidates, weights=weights, k=1)[0]
+
+    def _select_best_edge(self, ant: Ant, candidates: List[int]) -> int:
+        """
+        最良エッジを選択（τ_ij^α * η_ij^β が最大のエッジ）
+
+        【ACS方式のExploitation】
+        確率q0で最良エッジを確定的に選択することで、探索と活用のバランスを制御する。
+
+        Args:
+            ant: アリ
+            candidates: 候補ノードのリスト
+
+        Returns:
+            最良エッジに対応するノード
+        """
+        best_node = None
+        best_value = -1.0
+
+        for candidate in candidates:
+            edge_attr = self.graph.get_edge_attributes(ant.current_node, candidate)
+
+            # 【フェロモン項】τ^α：過去の成功経験に基づく重み
+            pheromone = edge_attr["pheromone"]
+            tau = pheromone**self.alpha
+
+            # 【ヒューリスティック項】η^β：ローカル情報（帯域、遅延）に基づく重み
+            bandwidth = edge_attr["bandwidth"]
+            delay = edge_attr["delay"]
+
+            # ヒューリスティック値の計算
+            if self.beta_bandwidth > 0:
+                if self.beta_delay > 0 and self.delay_constraint_enabled:
+                    # 帯域と遅延の両方を考慮
+                    if delay > 0:
+                        eta = (bandwidth**self.beta_bandwidth) * (
+                            (1.0 / delay) ** self.beta_delay
+                        )
+                    else:
+                        eta = bandwidth**self.beta_bandwidth
+                else:
+                    # 帯域のみ考慮
+                    eta = bandwidth**self.beta_bandwidth
+            else:
+                # ヒューリスティックなし
+                eta = 1.0
+
+            # 【総合値】τ^α * η^β
+            value = tau * eta
+
+            if value > best_value:
+                best_value = value
+                best_node = candidate
+
+        # 最良エッジが見つからない場合（重みが全て0など）はランダム選択
+        return best_node if best_node is not None else random.choice(candidates)
+
+    def _apply_local_update(self, u: int, v: int) -> None:
+        """
+        ACS方式のローカル更新：訪問エッジのフェロモンを即座に減少
+
+        式: τ_ij ← (1-ξ)τ_ij + ξτ_0
+
+        【目的】
+        同じ世代内で複数のアリが同一経路に収束することを防ぎ、探索の多様性を維持する。
+
+        Args:
+            u: 始点ノード
+            v: 終点ノード
+        """
+        edge_attr = self.graph.get_edge_attributes(u, v)
+        current_pheromone = edge_attr["pheromone"]
+        new_pheromone = (
+            1 - self.local_update_xi
+        ) * current_pheromone + self.local_update_xi * self.initial_pheromone
+
+        delta = new_pheromone - current_pheromone
+        self.graph.update_pheromone(u, v, delta, bidirectional=True)
