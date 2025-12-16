@@ -118,7 +118,7 @@ class ACOSolver:
         generations: int,
         optimal_solutions: Optional[List[Tuple[float, float, int]]] = None,
         metrics_calculator=None,
-    ) -> Tuple[List[Dict], Tuple[List[int], List[int]]]:
+    ) -> Tuple[List[Dict], List[int]]:
         """
         ACOを実行
 
@@ -343,11 +343,7 @@ class ACOSolver:
                             if all_optimal_solutions_for_phase:
                                 min_delay_in_solutions = min(
                                     opt_delay
-                                    for (
-                                        opt_bw,
-                                        opt_delay,
-                                        opt_hops,
-                                    ) in all_optimal_solutions_for_phase
+                                    for opt_bw, opt_delay, opt_hops in all_optimal_solutions_for_phase
                                 )
                                 optimal_delay_dict[current_start] = (
                                     min_delay_in_solutions
@@ -539,7 +535,6 @@ class ACOSolver:
             # これにより、他のアリの探索に即座に影響を与え、学習が加速する
             generation_solutions = []
             active_ants = list(ants)  # アクティブなアリのリスト
-            reached_ants = []  # ゴール到達アリ（ノード学習済み）を保持
 
             while active_ants:
                 for ant in list(active_ants):  # リストのコピーを反復（削除に対応）
@@ -612,14 +607,9 @@ class ACOSolver:
 
                         generation_solutions.append(solution)
 
-                        # ノード学習のみ即時反映（全アリ対象）
-                        node_old_memory = (
-                            self.pheromone_updater.update_node_memory_only(
-                                ant, self.graph, return_old_memory=True
-                            )
-                        )
-                        if node_old_memory is not None:
-                            reached_ants.append((ant, node_old_memory))
+                        # フェロモン更新（ノード学習値も同時に更新）
+                        # 制約を満たしている場合のみ実行される
+                        self.pheromone_updater.update_from_ant(ant, self.graph)
 
                         # 【ログ記録】最適解判定結果を記録
                         # 0 = 最適解、-1 = ゴール未到達、-2 = ゴール到達したが最適解ではない
@@ -662,11 +652,7 @@ class ACOSolver:
                                         if current_optimal_solutions:
                                             min_delay_in_solutions = min(
                                                 opt_delay
-                                                for (
-                                                    opt_bw,
-                                                    opt_delay,
-                                                    opt_hops,
-                                                ) in current_optimal_solutions
+                                                for opt_bw, opt_delay, opt_hops in current_optimal_solutions
                                             )
                                             # matched_optimal_delayが最小遅延と一致する場合
                                             if (
@@ -711,18 +697,6 @@ class ACOSolver:
                         ant_log_unique_optimal.append(log_value_unique)
                         ant_log_any_optimal.append(log_value_any)
                         active_ants.remove(ant)
-
-            # 【世代内ベストのアリのみフェロモン付加】
-            if reached_ants:
-
-                def _score(entry: Tuple[Ant, Dict]) -> float:
-                    bw, dly, hops = entry[0].get_solution()
-                    return self.evaluator.evaluate(bw, dly, hops)
-
-                best_ant, best_old_memory = max(reached_ants, key=_score)
-                self.pheromone_updater.add_pheromone_from_ant(
-                    best_ant, self.graph, best_old_memory
-                )
 
             # 【フェロモン揮発】世代終了時に全エッジのフェロモンを揮発
             # BKBベースのペナルティ付き揮発により、有望でないエッジのフェロモンを急速に減少
