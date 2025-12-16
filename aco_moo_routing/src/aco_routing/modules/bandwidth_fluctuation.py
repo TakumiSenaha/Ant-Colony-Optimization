@@ -12,7 +12,14 @@ import networkx as nx
 
 
 class BandwidthFluctuationModel:
-    """帯域変動の基底クラス"""
+    """
+    帯域変動モデルの基底クラス
+
+    動的ネットワーク環境を模擬するためのインターフェースを提供します。
+
+    Attributes:
+        graph (nx.Graph): 帯域変動対象となるNetworkXグラフ
+    """
 
     def __init__(self, graph: nx.Graph):
         self.graph = graph
@@ -27,7 +34,13 @@ class BandwidthFluctuationModel:
 
 
 class AR1Model(BandwidthFluctuationModel):
-    """AR(1)モデル: B_t = φ * B_{t-1} + (1-φ) * μ + ε"""
+    """
+    AR(1)モデル: B_t = φ * B_{t-1} + (1-φ) * μ + ε
+
+    - φ: AR係数（0.95で既存実装と同じ挙動）
+    - μ: 平均利用率（帯域の平均利用割合）
+    - ε: ガウス雑音（標準偏差 noise_std）
+    """
 
     def __init__(
         self,
@@ -61,22 +74,24 @@ class AR1Model(BandwidthFluctuationModel):
         edge_states = {}
         for u, v in fluctuating_edges:
             # グラフ生成時に設定されたoriginal_bandwidthを使用
-            original_bw = self.graph.edges[u, v].get("original_bandwidth", self.graph.edges[u, v]["bandwidth"])
-            
+            original_bw = self.graph.edges[u, v].get(
+                "original_bandwidth", self.graph.edges[u, v]["bandwidth"]
+            )
+
             # 初期利用率をランダムに設定（既存実装と同じ）
             initial_util = random.uniform(0.3, 0.5)
-            
+
             edge_states[(u, v)] = {
                 "utilization": initial_util,
                 "original_bandwidth": original_bw,
             }
-            
+
             # 初期可用帯域を設定（既存実装と同じ）
             initial_available = int(round(original_bw * (1.0 - initial_util)))
             initial_available = ((initial_available + 5) // 10) * 10  # 10Mbps刻みに丸め
             self.graph.edges[u, v]["bandwidth"] = float(initial_available)
             self.graph.edges[v, u]["bandwidth"] = float(initial_available)
-            
+
         return edge_states
 
     def update(self, edge_states: Dict[Tuple[int, int], Dict], generation: int) -> bool:

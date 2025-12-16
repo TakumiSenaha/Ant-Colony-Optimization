@@ -8,7 +8,12 @@ from typing import List, Tuple
 
 
 class SolutionEvaluator:
-    """解の評価を行うクラス"""
+    """
+    解の評価を行うクラス
+
+    Attributes:
+        target_objectives (List[str]): 目的関数のリスト（例: ["bandwidth", "delay"]）
+    """
 
     def __init__(self, target_objectives: List[str]):
         """
