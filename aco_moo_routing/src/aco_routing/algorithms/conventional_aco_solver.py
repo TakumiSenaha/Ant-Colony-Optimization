@@ -1,15 +1,18 @@
 """
-ACO Solverモジュール
+従来手法（Conventional Method）ACO Solverモジュール
 
-提案手法（Proposed Method）のACOアルゴリズムを実装します。
+【従来手法の概要】
+基本的なAnt System (AS)をMBL問題に適用した実装です。
+Mapisse et al. (2011)やDorigo et al. (1996)の手法をベースに、
+ボトルネック帯域に比例したフェロモン更新を行います。
 
-【アルゴリズム概要】
-1. 各世代で複数のアリ（エージェント）を生成し、スタートノードから探索を開始
-2. アリはε-Greedy戦略で次のノードを選択（探索と活用のバランス）
-3. ゴール群のいずれかに到達したアリは、即座にフェロモンを更新（完全分散方式）
-4. 各ノードは通過したアリの解品質を学習（BKB/BLD/BKH）
-5. フェロモン揮発時に、ノードの学習値に基づいてペナルティを適用
-6. 世代終了時に全エッジのフェロモンを揮発させ、古い情報を忘却
+【提案手法との違い】
+- フェロモン更新: Δτ = Q * B_k（ボトルネック帯域値のみを付与、シンプル）
+- 更新タイミング: アリがゴールに到達した時点で即座に付加（オンライン更新、提案手法と同じ）
+- フェロモン揮発: 世代ごとに定期揮発のみ（ペナルティなし、提案手法と同じタイミング）
+- ノード学習機能（BKB/BLD/BKH）は使用しない
+- 功績ボーナス/ペナルティは使用しない
+- パス選択時はフェロモンのみを考慮（帯域は考慮しない）
 """
 
 import random
@@ -23,7 +26,7 @@ from ..modules.bandwidth_fluctuation import (
     select_fluctuating_edges,
 )
 from ..modules.evaluator import SolutionEvaluator
-from ..modules.pheromone import PheromoneEvaporator, PheromoneUpdater
+from ..modules.pheromone import SimplePheromoneEvaporator, SimplePheromoneUpdater
 from .single_objective_solver import (
     bottleneck_capacity,
     calculate_path_delay,
@@ -33,29 +36,28 @@ from .single_objective_solver import (
 )
 
 
-class ACOSolver:
+class ConventionalACOSolver:
     """
-    提案手法（ノードベース学習/BKB/BLD/BKH）のACOソルバー
+    従来手法（Conventional Method）ACOソルバークラス
 
-    - ノード学習: 各ノードがBKB/BLD/BKHを保持し、分散学習を行う
-    - フェロモン: ノード学習値に基づく更新・ペナルティ付き揮発を実装
-    - 探索戦略: ε-Greedyによる確率的遷移（フェロモン×ヒューリスティック）
-    - 帯域変動: AR(1)モデルなどの動的帯域モデルに対応（オプション）
+    基本的なAnt System (AS)をMBL問題に適用した実装です。
+    特徴:
+    - フェロモン更新: Δτ = Q * B_k（ボトルネック帯域に比例）
+    - ノード学習機能（BKB/BLD/BKH）は使用しない
+    - 功績ボーナス/ペナルティは使用しない
+    - 単純な定率揮発のみ
 
     Attributes:
         config (Dict): 設定辞書
-        graph (RoutingGraph): ルーティンググラフ（NetworkXラッパー）
-        evaluator (SolutionEvaluator): 目的関数に基づく評価器
-        pheromone_updater (PheromoneUpdater): フェロモン付加ロジック
-        pheromone_evaporator (PheromoneEvaporator): フェロモン揮発ロジック
+        graph (RoutingGraph): ルーティンググラフ
+        evaluator (SolutionEvaluator): 目的関数に基づく評価器（帯域のみ）
+        pheromone_updater (SimplePheromoneUpdater): フェロモン付加ロジック
+        pheromone_evaporator (SimplePheromoneEvaporator): フェロモン揮発ロジック（定率）
         fluctuation_model (Optional[BandwidthFluctuationModel]): 帯域変動モデル（未使用ならNone）
         alpha (float): フェロモンの重み
-        beta_bandwidth (float): 帯域ヒューリスティックの重み
-        beta_delay (float): 遅延ヒューリスティックの重み
+        beta_bandwidth (float): 帯域ヒューリスティックの重み（0:なし、1:あり）
         epsilon (float): ε-Greedyの確率
         ttl (int): アリの最大ステップ数
-        delay_constraint_enabled (bool): 遅延制約の有無
-        max_delay (float): 遅延制約の上限値
     """
 
     def __init__(self, config: Dict, graph: RoutingGraph):
@@ -67,12 +69,12 @@ class ACOSolver:
         self.config = config
         self.graph = graph
 
-        # 評価関数
+        # 評価関数（最適解判定用）
         self.evaluator = SolutionEvaluator(config["experiment"]["target_objectives"])
 
-        # フェロモン更新・揮発
-        self.pheromone_updater = PheromoneUpdater(config, self.evaluator)
-        self.pheromone_evaporator = PheromoneEvaporator(config, self.evaluator)
+        # 従来手法用のフェロモン更新・揮発
+        self.pheromone_updater = SimplePheromoneUpdater(config)
+        self.pheromone_evaporator = SimplePheromoneEvaporator(config)
 
         # 帯域変動モデル
         self.fluctuation_model: Optional[BandwidthFluctuationModel] = None
@@ -120,7 +122,7 @@ class ACOSolver:
         metrics_calculator=None,
     ) -> Tuple[List[Dict], List[int]]:
         """
-        ACOを実行
+        ACOを実行（従来手法）
 
         Args:
             start_node: 開始ノード（スタート切り替えが有効な場合は最初のスタートノード）
@@ -136,12 +138,7 @@ class ACOSolver:
         if optimal_solutions is None:
             optimal_solutions = []
         results = []
-        ant_log_unique_optimal = (
-            []
-        )  # 一意な最適解（遅延最小）に一致したか（0=一致、-1=失敗、-2=非最適解）
-        ant_log_any_optimal = (
-            []
-        )  # 最適解リストのいずれかに一致したか（0=一致、-1=失敗、-2=非最適解）
+        ant_log = []  # 各アリが到達した時の成功/失敗を記録
 
         # スタートノード切り替えの設定を取得
         start_switching_config = self.config["experiment"].get("start_switching", {})
@@ -149,9 +146,6 @@ class ACOSolver:
         switch_interval = start_switching_config.get("switch_interval", 200)
 
         # スタートノードリストを取得または生成
-        # 【動的環境シミュレーション】ICN（Information-Centric Networking）を模擬
-        # コンテンツ要求ノード（スタート）が定期的に切り替わり、
-        # 以前の要求ノードがキャッシュ（ゴール）として追加されていく
         if start_switching_enabled:
             start_nodes = start_switching_config.get("start_nodes", [])
             if not start_nodes:
@@ -160,6 +154,7 @@ class ACOSolver:
                 num_nodes = self.graph.num_nodes
                 num_start_nodes = 10
                 all_nodes = list(range(num_nodes))
+                # 初期ゴールノードを除外
                 start_node_candidates = [n for n in all_nodes if n != goal_node]
                 start_nodes = random.sample(
                     start_node_candidates,
@@ -173,9 +168,6 @@ class ACOSolver:
         # 最初から初期ゴールノードを含める（最初のフェーズから探索可能にする）
         goal_nodes = [goal_node]
 
-        # 現在のスタートノード（スタート切り替えが無効な場合は固定）
-        current_start = start_nodes[0]
-
         # 帯域のみ最適化の場合、最適解を再計算するかどうか
         # 遅延制約が有効な場合、target_objectivesは["bandwidth", "delay"]に変更されているが、
         # フェロモン付加・揮発・ノード学習は["bandwidth", "delay"]と同じ（bandwidth/delayスコア）
@@ -186,7 +178,6 @@ class ACOSolver:
         )
 
         # update_intervalを取得
-        # update_interval == 0 の場合は変動を無効化（enabled: false と同じ）
         update_interval = self.config["graph"]["fluctuation"].get("update_interval", 1)
         if update_interval == 0:
             update_interval = float("inf")  # 変動しない（無限大に設定）
@@ -198,9 +189,6 @@ class ACOSolver:
         optimal_bottleneck_dict: Dict[int, float] = (
             {}
         )  # 遅延制約なし：帯域値、遅延制約あり：帯域値
-        optimal_delay_dict: Dict[int, Optional[float]] = (
-            {}
-        )  # 遅延制約ありの場合：一意な最適解（タイブレーク）の遅延値
         optimal_solutions_dict: Dict[int, List[Tuple[float, float, int]]] = (
             {}
         )  # 遅延制約ありの場合：複数の最適解のリスト
@@ -229,12 +217,11 @@ class ACOSolver:
                     current_start = start_nodes[phase]
 
                     # スタートノードが既にゴールにある場合はスキップ
-                    # （既にキャッシュがあるノードから要求するケース）
                     if current_start in goal_nodes:
                         print(
                             f"警告: スタートノード {current_start} は既にゴールです。このフェーズをスキップします。"
                         )
-                        optimal_bottleneck_dict[current_start] = -1.0
+                        optimal_bottleneck_dict[current_start] = -1
                         previous_start = current_start
                         continue
 
@@ -339,21 +326,6 @@ class ACOSolver:
                             optimal_bottleneck_dict[current_start] = (
                                 best_bottleneck_for_phase
                             )
-                            # 一意な最適解の遅延を計算（all_optimal_solutions_for_phaseから最小遅延を取得）
-                            if all_optimal_solutions_for_phase:
-                                min_delay_in_solutions = min(
-                                    opt_delay
-                                    for opt_bw, opt_delay, opt_hops in all_optimal_solutions_for_phase
-                                )
-                                optimal_delay_dict[current_start] = (
-                                    min_delay_in_solutions
-                                )
-                            else:
-                                optimal_delay_dict[current_start] = (
-                                    best_delay_for_phase
-                                    if best_delay_for_phase != float("inf")
-                                    else None
-                                )
                             optimal_solutions_dict[current_start] = (
                                 all_optimal_solutions_for_phase
                             )
@@ -399,7 +371,7 @@ class ACOSolver:
             else:
                 current_start = start_node
 
-            # 現在のゴールノード（複数ゴールがある場合は最大ボトルネックのものを使用）
+            # 現在のゴールノード
             if not start_switching_enabled:
                 current_goal = goal_node
             else:
@@ -414,16 +386,9 @@ class ACOSolver:
 
             # 【最適解の取得】ログ記録用に、現在のスタートノードに対する最適解を取得
             # スタートノード切り替え時は事前計算済みの値を、帯域変動時は再計算した値を使用
-            # 初期化（遅延制約が有効な場合に使用）
-            current_optimal_delay = None
             if start_switching_enabled:
                 current_optimal_bottleneck = optimal_bottleneck_dict.get(
                     current_start, -1
-                )
-                current_optimal_delay = (
-                    optimal_delay_dict.get(current_start, float("inf"))
-                    if self.delay_constraint_enabled
-                    else None
                 )
                 current_optimal_solutions = optimal_solutions_dict.get(
                     current_start, []
@@ -464,7 +429,6 @@ class ACOSolver:
                                 )
                                 # 全ての最適解をリストに追加
                                 current_optimal_solutions = []
-                                min_delay = float("inf")
                                 for path in all_optimal_paths:
                                     bottleneck = bottleneck_capacity(
                                         self.graph.graph, path, weight="bandwidth"
@@ -474,15 +438,8 @@ class ACOSolver:
                                     current_optimal_solutions.append(
                                         (bottleneck, delay, hops)
                                     )
-                                    # 一意な最適解（遅延最小）を探す
-                                    if delay < min_delay:
-                                        min_delay = delay
-                                current_optimal_delay = (
-                                    min_delay if min_delay != float("inf") else None
-                                )
                             else:
                                 current_optimal_bottleneck = None
-                                current_optimal_delay = None
                                 current_optimal_solutions = []
                         else:
                             # 遅延制約なし：最大ボトルネック帯域を持つ経路を最適解とする
@@ -510,13 +467,11 @@ class ACOSolver:
                     except Exception:
                         # 経路が存在しない場合はスキップ
                         current_optimal_bottleneck = None
-                        current_optimal_delay = None
                         current_optimal_solutions = []
                 else:
                     # 再計算しない場合は、前回の値を保持（最初の世代以外）
                     if generation == 0:
                         current_optimal_bottleneck = None
-                        current_optimal_delay = None
                         current_optimal_solutions = []
 
             # 【アリの生成】各世代で指定数のアリを生成
@@ -541,8 +496,7 @@ class ACOSolver:
                     # 【TTLチェック】最大ステップ数に達した場合は探索失敗
                     if not ant.is_alive():
                         active_ants.remove(ant)
-                        ant_log_unique_optimal.append(-1)  # -1 = ゴール未到達
-                        ant_log_any_optimal.append(-1)  # -1 = ゴール未到達
+                        ant_log.append(-1)  # -1 = ゴール未到達
                         continue
 
                     # 【ゴール到達判定】Anycast方式：ゴール群のいずれかに到達したかチェック
@@ -554,8 +508,7 @@ class ACOSolver:
                         if next_node is None:
                             # 行き先がない場合（全ての隣接ノードを訪問済み）は探索失敗
                             active_ants.remove(ant)
-                            ant_log_unique_optimal.append(-1)  # -1 = ゴール未到達
-                            ant_log_any_optimal.append(-1)  # -1 = ゴール未到達
+                            ant_log.append(-1)  # -1 = ゴール未到達
                             continue
 
                         # エッジの属性を取得
@@ -570,12 +523,7 @@ class ACOSolver:
                             if estimated_delay > self.max_delay:
                                 # 制約を満たさない場合は探索失敗
                                 active_ants.remove(ant)
-                                ant_log_unique_optimal.append(
-                                    -1
-                                )  # -1 = ゴール未到達（制約違反）
-                                ant_log_any_optimal.append(
-                                    -1
-                                )  # -1 = ゴール未到達（制約違反）
+                                ant_log.append(-1)  # -1 = ゴール未到達（制約違反）
                                 continue
 
                         # 移動（ボトルネック帯域、累積遅延、ホップ数を更新）
@@ -589,26 +537,20 @@ class ACOSolver:
                     # 【ゴール到達時の処理】即座にフェロモンを更新（完全分散方式）
                     if has_reached_any_goal:
                         solution = ant.get_solution()
-                        solution_delay = solution[1]  # total_delay
 
-                        # 【遅延制約チェック】ゴール到達時に制約を確認
-                        # 制約違反の場合はフェロモンを付加しない（探索失敗として扱う）
+                        # 【遅延制約チェック】ゴール到達時にも制約を確認
                         if self.delay_constraint_enabled:
+                            solution_delay = solution[1]  # total_delay
                             if solution_delay > self.max_delay:
                                 # 制約違反の場合は探索失敗として扱う
                                 active_ants.remove(ant)
-                                ant_log_unique_optimal.append(
-                                    -1
-                                )  # -1 = ゴール未到達（制約違反）
-                                ant_log_any_optimal.append(
-                                    -1
-                                )  # -1 = ゴール未到達（制約違反）
+                                ant_log.append(-1)  # -1 = ゴール未到達（制約違反）
                                 continue
 
                         generation_solutions.append(solution)
 
-                        # フェロモン更新（ノード学習値も同時に更新）
-                        # 制約を満たしている場合のみ実行される
+                        # 【フェロモン更新】ボトルネック帯域に比例したフェロモンを付加
+                        # ノード学習は行わない（従来手法の特徴）
                         self.pheromone_updater.update_from_ant(ant, self.graph)
 
                         # 【ログ記録】最適解判定結果を記録
@@ -617,13 +559,11 @@ class ACOSolver:
                             # 【最適解判定】帯域のみ最適化または遅延制約が有効な場合
                             if current_optimal_bottleneck is not None:
                                 if self.delay_constraint_enabled:
-                                    # 遅延制約が有効な場合：2つのログを記録
+                                    # 遅延制約が有効な場合：複数の最適解リストと比較
                                     solution_bandwidth = solution[0]
                                     solution_delay = solution[1]
-
-                                    # 【ログ2】最適解リストのいずれかに一致したか
-                                    is_any_optimal = False
-                                    matched_optimal_delay = None
+                                    # 最適解リストのいずれかと一致するかチェック
+                                    is_optimal = False
                                     if current_optimal_solutions:
                                         for (
                                             opt_bw,
@@ -635,48 +575,31 @@ class ACOSolver:
                                                 and abs(solution_delay - opt_delay)
                                                 < 1e-6
                                             ):
-                                                is_any_optimal = True
-                                                matched_optimal_delay = opt_delay
+                                                is_optimal = True
                                                 break
-                                    log_value_any = 0 if is_any_optimal else -2
-
-                                    # 【ログ1】一意な最適解（遅延最小）に一致したか
-                                    # 最適解リストの中で遅延が最小のものと一致する場合に成功
-                                    is_unique_optimal = False
-                                    if (
-                                        is_any_optimal
-                                        and matched_optimal_delay is not None
-                                    ):
-                                        # 最適解リストのいずれかに一致している場合
-                                        # current_optimal_solutionsの中で最小遅延を計算
-                                        if current_optimal_solutions:
-                                            min_delay_in_solutions = min(
-                                                opt_delay
-                                                for opt_bw, opt_delay, opt_hops in current_optimal_solutions
-                                            )
-                                            # matched_optimal_delayが最小遅延と一致する場合
-                                            if (
-                                                abs(
-                                                    matched_optimal_delay
-                                                    - min_delay_in_solutions
-                                                )
-                                                < 1e-6
-                                            ):
-                                                is_unique_optimal = True
-                                    log_value_unique = 0 if is_unique_optimal else -2
+                                    log_value = 0 if is_optimal else -2
                                 else:
-                                    # 遅延制約なし：帯域で判定（両方のログは同じ値）
+                                    # 遅延制約なし：帯域で判定
                                     solution_bandwidth = solution[0]
                                     bandwidth_ok = (
                                         solution_bandwidth >= current_optimal_bottleneck
                                     )
-                                    log_value_unique = 0 if bandwidth_ok else -2
-                                    log_value_any = log_value_unique
+                                    log_value = 0 if bandwidth_ok else -2
                             else:
                                 # 最適解が計算されていない場合（初期世代など）
-                                log_value_unique = -1
-                                log_value_any = -1
+                                log_value = -1
                         elif optimal_solutions and metrics_calculator:
+                            # 【多目的最適化】パレート最適化または遅延制約が有効な場合
+                            # 見つけた解がパレートフロンティアのどの解に対応するかを判定
+                            optimal_index = (
+                                metrics_calculator.find_optimal_solution_index(
+                                    solution, optimal_solutions
+                                )
+                            )
+                            # 0以上 = 最適解のインデックス、None = 非最適解（-2に変換）
+                            log_value = (
+                                optimal_index if optimal_index is not None else -2
+                            )
                             # 【多目的最適化】パレート最適化の場合
                             # 見つけた解がパレートフロンティアのどの解に対応するかを判定
                             optimal_index = (
@@ -685,35 +608,21 @@ class ACOSolver:
                                 )
                             )
                             # 0以上 = 最適解のインデックス、None = 非最適解（-2に変換）
-                            log_value_unique = (
+                            log_value = (
                                 optimal_index if optimal_index is not None else -2
                             )
-                            log_value_any = log_value_unique  # パレート最適化では同じ
                         else:
                             # フォールバック：最適解判定ができない場合
-                            log_value_unique = -1
-                            log_value_any = -1
+                            log_value = -2
 
-                        ant_log_unique_optimal.append(log_value_unique)
-                        ant_log_any_optimal.append(log_value_any)
+                        ant_log.append(log_value)
                         active_ants.remove(ant)
 
             # 【フェロモン揮発】世代終了時に全エッジのフェロモンを揮発
-            # BKBベースのペナルティ付き揮発により、有望でないエッジのフェロモンを急速に減少
+            # 従来手法では、単純な定率揮発のみ（ペナルティ付き揮発は使用しない）
             self.pheromone_evaporator.evaporate(self.graph)
 
-            # 【ノード学習値の揮発】動的環境への適応のため、古い学習値を忘却
-            # BKBは減少、BLD/BKHは増加（悪化方向に揮発）することで、環境変化に対応
-            bkb_evaporation_rate = self.config["aco"]["learning"][
-                "bkb_evaporation_rate"
-            ]
-            self.graph.evaporate_node_learning(bkb_evaporation_rate)
-
-            # 結果を記録
-            # interest: 現在のフェロモン分布で貪欲に1経路だけを選んだ場合の解
-            interest_solution = self._greedy_pheromone_path(
-                current_start, goal_nodes, self.ttl
-            )
+            # 【ノード学習値の揮発】従来手法ではノード学習機能を使用しないため、揮発処理は不要
 
             # 各世代の最適解を記録（帯域変動が有効な場合、変動後のグラフで計算された最適解）
             current_gen_optimal_solutions = []
@@ -727,7 +636,7 @@ class ACOSolver:
                 ):
                     # フォールバック：最適解リストが空の場合
                     current_gen_optimal_solutions = [
-                        (current_optimal_bottleneck, current_optimal_delay or 0.0, 0)
+                        (current_optimal_bottleneck, 0.0, 0)
                     ]
             else:
                 # スタート切り替えが有効な場合、事前計算済みの最適解を使用
@@ -738,118 +647,19 @@ class ACOSolver:
                     and current_optimal_bottleneck > 0
                 ):
                     current_gen_optimal_solutions = [
-                        (current_optimal_bottleneck, current_optimal_delay or 0.0, 0)
+                        (current_optimal_bottleneck, 0.0, 0)
                     ]
 
-            if interest_solution is not None:
-                interest_bandwidth = bottleneck_capacity(
-                    self.graph.graph, interest_solution, weight="bandwidth"
-                )
-                interest_delay = calculate_path_delay(
-                    self.graph.graph, interest_solution
-                )
-                interest_hops = len(interest_solution) - 1
-                interest_result = (
-                    interest_bandwidth,
-                    interest_delay,
-                    interest_hops,
-                )
-            else:
-                interest_result = None
-
+            # 結果を記録
             results.append(
                 {
                     "generation": generation,
                     "solutions": generation_solutions,
                     "optimal_solutions": current_gen_optimal_solutions,  # 各世代の最適解（帯域変動を考慮）
-                    "interest_solution": interest_result,
                 }
             )
 
-        return results, (ant_log_unique_optimal, ant_log_any_optimal)
-
-    def _greedy_pheromone_path(
-        self, start_node: int, goal_nodes: List[int], ttl: int
-    ) -> Optional[List[int]]:
-        """
-        現在のフェロモン分布のみを頼りに貪欲に経路を構築する。
-        同値の場合は帯域が大きい方、さらに同値なら遅延が小さい方を選ぶ。
-        """
-        if not goal_nodes:
-            return None
-        goal_set = set(goal_nodes)
-        visited = set([start_node])
-        path = [start_node]
-        current = start_node
-        steps = 0
-
-        while current not in goal_set and steps < ttl:
-            neighbors = [
-                n for n in self.graph.get_neighbors(current) if n not in visited
-            ]
-            if not neighbors:
-                return None
-
-            def score(n: int) -> Tuple[float, float, float]:
-                edge_attr = self.graph.get_edge_attributes(current, n)
-                # 大きいほど良い指標でソートしたいので (-delay) で返す
-                return (
-                    edge_attr.get("pheromone", 0.0),
-                    edge_attr.get("bandwidth", 0.0),
-                    -edge_attr.get("delay", 0.0),
-                )
-
-            next_node = max(neighbors, key=score)
-            edge_attr = self.graph.get_edge_attributes(current, next_node)
-
-            # 遅延制約を満たさない場合は除外して再選択
-            if self.delay_constraint_enabled:
-                estimated_delay = (
-                    calculate_path_delay(self.graph.graph, path + [next_node])
-                    if len(path) > 1
-                    else edge_attr.get("delay", float("inf"))
-                )
-                if estimated_delay > self.max_delay:
-                    neighbors.remove(next_node)
-                    if not neighbors:
-                        return None
-                    next_node = max(neighbors, key=score)
-
-            path.append(next_node)
-            visited.add(next_node)
-            current = next_node
-            steps += 1
-
-        if current in goal_set:
-            return path
-        return None
-
-    def _ant_search(self, ant: Ant, goal_node: int) -> bool:
-        """
-        アリの経路探索
-
-        Args:
-            ant: アリ
-            goal_node: 目的地ノード
-
-        Returns:
-            ゴールに到達した場合True
-        """
-        while ant.is_alive() and not ant.has_reached_goal():
-            # 次のノードを選択
-            next_node = self._select_next_node(ant)
-
-            if next_node is None:
-                # 行き先がない場合は探索失敗
-                return False
-
-            # エッジの属性を取得
-            edge_attr = self.graph.get_edge_attributes(ant.current_node, next_node)
-
-            # 移動
-            ant.move_to(next_node, edge_attr["bandwidth"], edge_attr["delay"])
-
-        return ant.has_reached_goal()
+        return results, ant_log
 
     def _select_next_node(self, ant: Ant) -> Optional[int]:
         """
@@ -857,7 +667,7 @@ class ACOSolver:
 
         【ε-Greedy戦略】
         - 確率εでランダム選択（探索）：局所最適解への収束を防ぐ
-        - 確率(1-ε)で確率的選択（活用）：フェロモンとヒューリスティック情報に基づく
+        - 確率(1-ε)で確率的選択（活用）：フェロモンのみに基づく（従来手法）
 
         【遅延制約】
         遅延制約が有効な場合、制約を満たさない候補ノードは除外される。
@@ -892,19 +702,22 @@ class ACOSolver:
             # 【探索】ランダム選択：新しい経路を発見する可能性を維持
             return random.choice(candidates)
         else:
-            # 【活用】フェロモンとヒューリスティックに基づく確率的選択
+            # 【活用】確率的選択
+            # beta_bandwidth=0: フェロモンのみ（従来手法1）
+            # beta_bandwidth>0: フェロモン+ヒューリスティック（従来手法2）
             return self._probabilistic_selection(ant, candidates)
 
     def _probabilistic_selection(self, ant: Ant, candidates: List[int]) -> int:
         """
-        フェロモンとヒューリスティックに基づく確率的選択
+        確率的選択（従来手法：基本的なAnt System）
 
-        【Random Proportional Rule】
-        選択確率 p_ij = (τ_ij^α * η_ij^β) / Σ(τ_il^α * η_il^β)
-        - τ_ij: エッジ(i,j)のフェロモン量（過去の成功経験）
-        - η_ij: エッジ(i,j)のヒューリスティック値（ローカル情報）
-        - α: フェロモンの重要度
-        - β: ヒューリスティックの重要度
+        beta_bandwidth=0の場合（従来手法1：基本ACO w/o Heuristic）:
+        式: p_ij^k = [τ_ij]^α / Σ_l [τ_il]^α
+        フェロモンのみで経路を選択する。
+
+        beta_bandwidth=1の場合（従来手法2：基本ACO w/ Heuristic）:
+        式: p_ij^k = [τ_ij]^α · [w_ij]^β / Σ_l [τ_il]^α · [w_il]^β
+        フェロモンとヒューリスティック情報（帯域幅）で経路を選択する。
 
         Args:
             ant: アリ
@@ -917,39 +730,24 @@ class ACOSolver:
         for candidate in candidates:
             edge_attr = self.graph.get_edge_attributes(ant.current_node, candidate)
 
-            # 【フェロモン項】τ^α：過去の成功経験に基づく重み
+            # フェロモン
             pheromone = edge_attr["pheromone"]
-            tau = pheromone**self.alpha
+            weight_pheromone = pheromone**self.alpha
 
-            # 【ヒューリスティック項】η^β：ローカル情報（帯域、遅延）に基づく重み
-            bandwidth = edge_attr["bandwidth"]
-            delay = edge_attr["delay"]
-
-            # ヒューリスティック値の計算（最適化目標に応じて変更）
-            objectives = self.config["experiment"]["target_objectives"]
-
-            if "delay" in objectives and len(objectives) > 1:
-                # 【多目的最適化】帯域と遅延の両方を考慮
-                # η = bandwidth^β_bandwidth * (1/delay)^β_delay
-                # 帯域は大きいほど良い、遅延は小さいほど良い
-                if delay > 0:
-                    eta = (bandwidth**self.beta_bandwidth) * (
-                        (1.0 / delay) ** self.beta_delay
-                    )
-                else:
-                    eta = bandwidth**self.beta_bandwidth
+            # ヒューリスティック情報（beta_bandwidth > 0の場合のみ使用）
+            if self.beta_bandwidth > 0:
+                bandwidth = edge_attr["bandwidth"]
+                weight_heuristic = bandwidth**self.beta_bandwidth
+                weight = weight_pheromone * weight_heuristic
             else:
-                # 【単一目的最適化】帯域のみ考慮
-                # η = bandwidth^β_bandwidth
-                eta = bandwidth**self.beta_bandwidth
+                # beta_bandwidth=0の場合：フェロモンのみを使用
+                weight = weight_pheromone
 
-            # 【総合重み】フェロモンとヒューリスティックの積
-            weight = tau * eta
             weights.append(weight)
 
-        # 重みが全て0の場合はランダム選択（フェロモンが全くない初期状態など）
+        # 重みが全て0の場合はランダム選択
         if sum(weights) == 0:
             return random.choice(candidates)
 
-        # 【確率選択】重みに比例した確率で選択
+        # 確率的に選択
         return random.choices(candidates, weights=weights, k=1)[0]
