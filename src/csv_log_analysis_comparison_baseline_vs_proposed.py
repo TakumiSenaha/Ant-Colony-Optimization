@@ -51,8 +51,12 @@ baseline_fluctuation_csv = (
 proposed_fluctuation_csv = "./simulation_result/proposed_bandwidth_fluctuation.csv"
 
 export_image_name = "./simulation_result/result_comparison_four_methods.svg"
+export_image_name_eps = "./simulation_result/result_comparison_four_methods.eps"
 export_image_name_fluctuation = (
     "./simulation_result/result_comparison_bandwidth_fluctuation.svg"
+)
+export_image_name_fluctuation_eps = (
+    "./simulation_result/result_comparison_bandwidth_fluctuation.eps"
 )
 # ========================
 
@@ -241,7 +245,9 @@ if has_data:
 
     plt.tight_layout()
     plt.savefig(export_image_name, format="svg")
+    plt.savefig(export_image_name_eps, format="eps")
     print(f"Graph saved to: {export_image_name}")
+    print(f"Graph saved to: {export_image_name_eps}")
 
     # ===== Statistical Information Display =====
     print("\n" + "=" * 60)
@@ -372,7 +378,9 @@ if has_data:
 
         plt.tight_layout()
         plt.savefig(export_image_name_fluctuation, format="svg")
+        plt.savefig(export_image_name_fluctuation_eps, format="eps")
         print(f"Graph saved to: {export_image_name_fluctuation}")
+        print(f"Graph saved to: {export_image_name_fluctuation_eps}")
 
         # 統計情報の表示
         print("\n" + "=" * 60)
