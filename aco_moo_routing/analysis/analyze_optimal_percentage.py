@@ -1,238 +1,270 @@
 """
-最適解到達率の分析スクリプト
+最適解到達率と品質スコアの分析スクリプト（新ログ対応）
 
-既存実装（csv_log_analysis_percentage_of_optimal_solution_use_modified_dijkstra.py）と
-同じ形式で、CSVログから最適解到達率を計算し、グラフを描画します。
+- 入力: ant_solution_log.csv（共通形式）
+- 出力: 任意の指標を選択してグラフ化
+
+使い方（例）:
+  # プロジェクトルートから
+  python aco_moo_routing/analysis/analyze_optimal_percentage.py \
+    --csv aco_moo_routing/results/proposed/static/bandwidth_only/ant_solution_log.csv \
+    --generations 1000 --ants 10 --metric optimal_rate
+
+  # 生成されるファイル: 指定CSVと同じフォルダに {metric}.svg
+  # metric: optimal_rate | unique_optimal_rate | avg_quality | max_quality
 """
 
 import csv
-import sys
+from collections import defaultdict
 from pathlib import Path
+from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 
-# プロジェクトルートをPythonパスに追加
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / "src"))
-
 try:
-    import japanize_matplotlib
+    import japanize_matplotlib  # noqa: F401
 except ImportError:
     print(
-        "⚠️  Warning: japanize_matplotlib not available. Japanese labels may not display correctly."
+        "⚠️ japanize_matplotlib が見つかりません。日本語ラベルが正しく表示されない可能性があります。"
     )
-
-# ===== 解析設定 =====
-# シミュレーションで設定したアリの数を指定してください
-ANT_NUM = 10
 
 # グラフ描画設定
-AXIS_LABEL_FONTSIZE = 28  # 軸ラベルのフォントサイズ
-TICK_LABEL_FONTSIZE = 24  # 目盛りラベルのフォントサイズ
-# ===================
+AXIS_LABEL_FONTSIZE = 24
+TICK_LABEL_FONTSIZE = 18
+FIGURE_WIDTH = 10  # グラフの横幅（論文形式で統一）
+FIGURE_HEIGHT = 7  # グラフの縦幅（論文形式で統一）
 
 
-def process_csv_data(file_path: Path, ant_num: int) -> list:
+def chunk_rows(
+    rows: List[List[str]], ants: int, generations: int
+) -> List[List[List[str]]]:
+    """行リストをシミュレーション単位にチャンクする"""
+    chunk_size = ants * generations
+    if chunk_size <= 0:
+        raise ValueError("ants と generations は正の整数である必要があります。")
+    return [rows[i : i + chunk_size] for i in range(0, len(rows), chunk_size)]
+
+
+def load_ant_solution_log(
+    file_path: Path, ants: int, generations: int
+) -> Tuple[List[Dict], List[List[str]]]:
     """
-    CSVデータを読み込み、世代ごとの最適解発見率を計算する。
-
-    Args:
-        file_path: CSVファイルのパス
-        ant_num: アリの数
-
-    Returns:
-        世代ごとの最適解到達率のリスト（パーセンテージ）
+    ant_solution_log.csv を読み込み、世代ごとの集計に備えた構造を返す。
     """
-    data = []
-    try:
-        with open(file_path, "r") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if row:  # 空の行をスキップ
-                    data.append([int(val) for val in row])
-    except FileNotFoundError:
-        print(f"❌ エラー: ファイルが見つかりません: {file_path}")
-        return []
-    except Exception as e:
-        print(f"❌ エラー: ファイル読み込み中にエラーが発生しました: {e}")
-        return []
+    rows: List[List[str]] = []
+    with open(file_path, "r") as f:
+        reader = csv.reader(f)
+        for r in reader:
+            if r:
+                rows.append(r)
 
-    if not data:
-        print(f"⚠️  警告: CSVファイル '{file_path}' が空です。")
-        return []
+    # ヘッダー行を除外（先頭が "generation" ならスキップ）
+    if rows and rows[0] and rows[0][0].lower() == "generation":
+        rows = rows[1:]
 
-    num_simulations = len(data)
-    optimal_percentages = []
+    if not rows:
+        raise ValueError(f"CSVが空です: {file_path}")
 
-    if ant_num == 1:
-        # === ANT_NUM = 1 の場合の処理 ===
-        print(f"ANT_NUM = {ant_num} として集計します。")
-        if not data[0]:
-            return []
-        num_generations = len(data[0])
-
-        for gen_idx in range(num_generations):
-            # その世代で成功(1)したシミュレーションの数を数える
-            count_optimal = sum(row[gen_idx] == 1 for row in data)
-            percentage = (count_optimal / num_simulations) * 100
-            optimal_percentages.append(percentage)
-
-    else:
-        # === ANT_NUM > 1 の場合の処理（チャンク処理） ===
-        print(f"ANT_NUM = {ant_num} として集計します。")
-        if not data[0]:
-            return []
-        total_log_entries = len(data[0])
-        num_generations = total_log_entries // ant_num
-
-        for gen_idx in range(num_generations):
-            generation_success_count = 0
-            # 各シミュレーション（各行）について処理
-            for sim_row in data:
-                start_index = gen_idx * ant_num
-                end_index = start_index + ant_num
-                generation_chunk = sim_row[start_index:end_index]
-
-                # その世代のチャンク内に1が一つでもあれば、そのシミュレーションはその世代で成功と見なす
-                if 1 in generation_chunk:
-                    generation_success_count += 1
-
-            percentage = (generation_success_count / num_simulations) * 100
-            optimal_percentages.append(percentage)
-
-    return optimal_percentages
+    # シミュレーション単位に分割（複数シミュレーションを1ファイルに入れる場合を考慮）
+    simulations = chunk_rows(rows, ants, generations)
+    parsed: List[Dict] = []
+    for sim_idx, sim_rows in enumerate(simulations):
+        if len(sim_rows) != ants * generations:
+            print(
+                f"⚠️ シミュレーション {sim_idx} の行数が想定と異なります: "
+                f"{len(sim_rows)} 行 (期待: {ants * generations})"
+            )
+        for r in sim_rows:
+            try:
+                gen = int(r[0])
+                ant_id = int(r[1])
+                bandwidth = float(r[2])
+                delay = float(r[3])
+                hops = int(r[4])
+                is_optimal = int(r[5])
+                optimal_index = int(r[6])
+                is_unique_optimal = int(r[7])
+                quality_score = float(r[8])
+            except (ValueError, IndexError):
+                # 不正行はスキップ
+                continue
+            parsed.append(
+                {
+                    "generation": gen,
+                    "ant_id": ant_id,
+                    "bandwidth": bandwidth,
+                    "delay": delay,
+                    "hops": hops,
+                    "is_optimal": is_optimal,
+                    "optimal_index": optimal_index,
+                    "is_unique_optimal": is_unique_optimal,
+                    "quality_score": quality_score,
+                    "simulation": sim_idx,
+                }
+            )
+    return parsed, rows
 
 
-def main():
-    """メイン処理"""
-    import argparse
+def aggregate_by_generation(
+    parsed: List[Dict], ants: int, generations: int
+) -> Dict[str, List[float]]:
+    """世代ごとの指標を計算（最適解割合、ユニーク最適解割合、平均QSなど）"""
+    gen_stats: Dict[str, List[float]] = {
+        "optimal_rate": [],
+        "unique_optimal_rate": [],
+        "avg_quality": [],  # 全アリ（全シミュレーション）の平均QS
+        "max_quality": [],  # シミュレーションごとの最大QSを平均した値
+    }
+    if not parsed:
+        return gen_stats
 
-    parser = argparse.ArgumentParser(description="最適解到達率の分析スクリプト")
-    parser.add_argument(
-        "--csv",
-        type=str,
-        default=None,
-        help="CSVログファイルのパス（未指定の場合は最新の結果ディレクトリを検索）",
-    )
-    parser.add_argument(
-        "--ants",
-        type=int,
-        default=10,
-        help="アリの数（デフォルト: 10）",
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default=None,
-        help="出力画像ファイルのパス（未指定の場合はCSVと同じディレクトリ）",
-    )
-    args = parser.parse_args()
+    sims = max(p["simulation"] for p in parsed) + 1
 
-    # CSVファイルのパスを決定
-    if args.csv:
-        csv_file_path = Path(args.csv)
-    else:
-        # 最新の結果ディレクトリを検索
-        results_dir = project_root / "results"
-        if not results_dir.exists():
-            print(f"❌ エラー: 結果ディレクトリが見つかりません: {results_dir}")
-            return
+    # 事前に (sim, gen) ごとにバケット化して計算量を削減
+    bucket: Dict[Tuple[int, int], List[Dict]] = defaultdict(list)
+    for p in parsed:
+        bucket[(p["simulation"], p["generation"])].append(p)
 
-        # タイムスタンプ順にソートして最新を取得
-        result_dirs = sorted(results_dir.glob("*"), reverse=True)
-        if not result_dirs:
-            print(f"❌ エラー: 結果ディレクトリが空です: {results_dir}")
-            return
+    for g in range(generations):
+        success_any = 0
+        success_unique = 0
+        qs_vals_all: List[float] = []
+        max_qs_per_sim: List[float] = []
+        for sim in range(sims):
+            ants_rows = bucket.get((sim, g), [])
+            if not ants_rows:
+                continue
 
-        csv_file_path = result_dirs[0] / "log_ant_available_bandwidth.csv"
-        if not csv_file_path.exists():
-            print(f"❌ エラー: CSVファイルが見つかりません: {csv_file_path}")
-            return
+            if any(p["is_optimal"] == 1 for p in ants_rows):
+                success_any += 1
+            if any(p["is_unique_optimal"] == 1 for p in ants_rows):
+                success_unique += 1
 
-    print(f"📊 分析対象: {csv_file_path}")
+            qs_sim = [p["quality_score"] for p in ants_rows if p["quality_score"] >= 0]
+            if qs_sim:
+                qs_vals_all.extend(qs_sim)
+                max_qs_per_sim.append(max(qs_sim))
 
-    # データ読み込みと処理
-    optimal_percentages = process_csv_data(csv_file_path, args.ants)
+        denom = sims if sims > 0 else 1
+        gen_stats["optimal_rate"].append(100 * success_any / denom)
+        gen_stats["unique_optimal_rate"].append(100 * success_unique / denom)
+        gen_stats["avg_quality"].append(
+            sum(qs_vals_all) / len(qs_vals_all) if qs_vals_all else 0.0
+        )
+        gen_stats["max_quality"].append(
+            sum(max_qs_per_sim) / len(max_qs_per_sim) if max_qs_per_sim else 0.0
+        )
 
-    if not optimal_percentages:
-        print("❌ データが正常に処理されませんでした。")
-        return
+    return gen_stats
 
-    # 出力画像ファイルのパスを決定
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        output_path = csv_file_path.parent / "result_optimal_percentage.svg"
 
-    # グラフ描画（論文標準形式：箱型）
-    x_values = list(range(len(optimal_percentages)))
-    y_values = optimal_percentages
-
-    plt.figure(figsize=(10, 7))  # 白銀比に近い比率
+def plot_metric(
+    values: List[float],
+    ylabel: str,
+    output_path: Path,
+    y_max: float = 105.0,
+):
+    plt.figure(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
+    x_values = list(range(len(values)))
     plt.plot(
         x_values,
-        y_values,
+        values,
         marker="o",
         linestyle="-",
         color="black",
-        linewidth=2.0,  # 線幅を太く（0.02cm以上相当）
-        markersize=5,  # マーカーサイズを適度に
+        linewidth=2.0,
+        markersize=5,
     )
-
-    plt.ylim((0, 105))
+    plt.ylim((0, y_max))
     plt.xlim(left=0)
     plt.xlabel("Generation", fontsize=AXIS_LABEL_FONTSIZE)
-    plt.ylabel("Optimal Path Selection Ratio [%]", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.ylabel(ylabel, fontsize=AXIS_LABEL_FONTSIZE)
 
-    # 論文標準の軸設定（箱型：全ての枠線を表示）
     ax = plt.gca()
-    ax.spines["top"].set_visible(True)  # 上枠線を表示
-    ax.spines["right"].set_visible(True)  # 右枠線を表示
-    ax.spines["left"].set_visible(True)  # 左枠線を表示
-    ax.spines["bottom"].set_visible(True)  # 下枠線を表示
-
-    # 全ての枠線を黒色、適切な線幅に設定
     for spine in ax.spines.values():
         spine.set_color("black")
-        spine.set_linewidth(1.5)  # 枠線の線幅
-
-    # 目盛りの設定
+        spine.set_linewidth(1.5)
     ax.tick_params(
         axis="both",
         which="major",
-        labelsize=TICK_LABEL_FONTSIZE,  # 目盛りラベルのフォントサイズ
-        direction="out",  # 目盛りを外向きに
-        length=6,  # 主目盛りの長さ
-        width=1.5,  # 目盛り線の太さ
+        labelsize=TICK_LABEL_FONTSIZE,
+        direction="out",
+        length=6,
+        width=1.5,
         color="black",
     )
-
-    # 副目盛りの設定
     ax.tick_params(
         axis="both",
         which="minor",
         direction="out",
-        length=3,  # 副目盛りの長さ（主目盛りより短く）
-        width=1.0,  # 副目盛り線の太さ
+        length=3,
+        width=1.0,
         color="black",
     )
-
-    # 副目盛りを有効化
     ax.minorticks_on()
 
     plt.tight_layout()
     plt.savefig(output_path, format="svg")
     print(f"✅ グラフを保存しました: {output_path}")
+    plt.close()
 
-    # 統計情報を表示
-    if optimal_percentages:
-        final_rate = optimal_percentages[-1]
-        max_rate = max(optimal_percentages)
-        avg_rate = sum(optimal_percentages) / len(optimal_percentages)
-        print(f"\n📈 統計情報:")
-        print(f"  最終世代の到達率: {final_rate:.2f}%")
-        print(f"  最大到達率: {max_rate:.2f}%")
-        print(f"  平均到達率: {avg_rate:.2f}%")
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="ant_solution_log.csv から最適解到達率/品質スコアを可視化"
+    )
+    parser.add_argument(
+        "--csv", type=str, required=True, help="ant_solution_log.csv のパス"
+    )
+    parser.add_argument("--ants", type=int, default=10, help="1世代あたりのアリ数")
+    parser.add_argument(
+        "--generations",
+        type=int,
+        required=True,
+        help="世代数（ログ行数から割り切れる値）",
+    )
+    parser.add_argument(
+        "--metric",
+        type=str,
+        default="optimal_rate",
+        choices=["optimal_rate", "unique_optimal_rate", "avg_quality", "max_quality"],
+        help="可視化する指標",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="出力パス（未指定ならCSVと同じフォルダに metric.svg を出力）",
+    )
+    args = parser.parse_args()
+
+    csv_path = Path(args.csv)
+    parsed, _ = load_ant_solution_log(csv_path, args.ants, args.generations)
+    stats = aggregate_by_generation(parsed, args.ants, args.generations)
+
+    metric_values = stats.get(args.metric, [])
+    if not metric_values:
+        print(f"❌ 指標 {args.metric} の値がありません。")
+        return
+
+    output_path = (
+        Path(args.output) if args.output else csv_path.parent / f"{args.metric}.svg"
+    )
+    ylabel_map = {
+        "optimal_rate": "Optimal Solution Ratio [%]",
+        "unique_optimal_rate": "Unique Optimal Solution Ratio [%]",
+        # 品質スコア: 導出ボトルネック帯域 / 最適ボトルネック帯域
+        "avg_quality": "Derived Bottleneck / Optimal Bottleneck",
+        "max_quality": "Derived Bottleneck / Optimal Bottleneck",
+    }
+    plot_metric(
+        metric_values,
+        ylabel_map.get(args.metric, args.metric),
+        output_path,
+        105.0 if "rate" in args.metric else 1.05,
+    )
 
 
 if __name__ == "__main__":
