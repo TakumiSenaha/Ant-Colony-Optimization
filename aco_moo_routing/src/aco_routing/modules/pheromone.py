@@ -71,6 +71,33 @@ class PheromoneUpdater:
         # 【Step 1】各ノードの学習値（BKB/BLD/BKH）を更新し、更新前の値を記録
         # 更新前の値は、功績ボーナス判定に使用（更新後の値と比較すると常に更新されるため）
         # 【重要】制約内のパスのみ学習する（制約違反は既にreturnで除外済み）
+        node_old_memory = self.update_node_memory_only(
+            ant, graph, return_old_memory=True
+        )
+        if node_old_memory is None:
+            return
+
+        # 【Step 2】経路上の各エッジにフェロモンを付加（帰還時の処理）
+        self._add_pheromone_from_ant(ant, graph, node_old_memory)
+
+    def update_node_memory_only(
+        self, ant: Ant, graph: RoutingGraph, return_old_memory: bool = False
+    ) -> Optional[Dict[int, Tuple[float, float, float]]]:
+        """
+        ノードの学習値（BKB/BLD/BKH）のみを更新する。
+
+        すべてのアリがゴール到達時にノード学習を反映するためのヘルパ。
+        フェロモン付加は行わない。
+        """
+        bandwidth, delay, _ = ant.get_solution()
+
+        delay_constraint_config = self.config["experiment"].get("delay_constraint", {})
+        delay_constraint_enabled = delay_constraint_config.get("enabled", False)
+        max_delay = delay_constraint_config.get("max_delay", float("inf"))
+
+        if delay_constraint_enabled and delay > max_delay:
+            return None
+
         node_old_memory: Dict[int, Tuple[float, float, float]] = {}
 
         for node in ant.route:
@@ -84,14 +111,54 @@ class PheromoneUpdater:
             # 学習値を更新（帯域のみ：K_v ← max(K_v, B)）
             graph[node].update_bandwidth(bandwidth)
 
-        # 【Step 2】経路上の各エッジにフェロモンを付加（帰還時の処理）
-        # アリはゴールからスタートへ戻りながら、各エッジにフェロモンを付加
+        if return_old_memory:
+            return node_old_memory
+        return None
+
+    def add_pheromone_from_ant(
+        self,
+        ant: Ant,
+        graph: RoutingGraph,
+        node_old_memory: Optional[Dict[int, Tuple[float, float, float]]] = None,
+    ) -> None:
+        """
+        フェロモンのみを付加する。
+
+        事前に update_node_memory_only でノード学習を済ませたアリに対し、
+        1世代で最良のアリだけフェロモンを付加する用途で使用する。
+        """
+        # node_old_memory がない場合は通常の処理
+        if node_old_memory is None:
+            self.update_from_ant(ant, graph)
+            return
+
+        bandwidth, delay, _ = ant.get_solution()
+
+        delay_constraint_config = self.config["experiment"].get("delay_constraint", {})
+        delay_constraint_enabled = delay_constraint_config.get("enabled", False)
+        max_delay = delay_constraint_config.get("max_delay", float("inf"))
+
+        if delay_constraint_enabled and delay > max_delay:
+            return
+
+        self._add_pheromone_from_ant(ant, graph, node_old_memory)
+
+    # 内部ヘルパ: フェロモン付加処理を共通化
+    def _add_pheromone_from_ant(
+        self,
+        ant: Ant,
+        graph: RoutingGraph,
+        node_old_memory: Dict[int, Tuple[float, float, float]],
+    ) -> None:
+        bandwidth, delay, _ = ant.get_solution()
+        delay_constraint_config = self.config["experiment"].get("delay_constraint", {})
+        delay_constraint_enabled = delay_constraint_config.get("enabled", False)
+
         route_edges = ant.get_route_edges()
 
         for i, (u, v) in enumerate(route_edges):
             # 【基本フェロモン付加量】f(B) = 10 * B
             # 【遅延制約が有効な場合】帯域/遅延のスコアを使用
-            # Δτ = 10 * (B / D_path)
             if delay_constraint_enabled:
                 if delay > 0:
                     base_pheromone = 10.0 * (bandwidth / delay)
@@ -100,10 +167,9 @@ class PheromoneUpdater:
             else:
                 base_pheromone = bandwidth * 10.0
 
-            # 【功績ボーナス判定】分散判断：各ノードが独立に判定
-            # エッジ(u, v)の処理 = 帰還時にノードvからノードuへ戻る処理に対応
-            # この時点で、アリはノードvの記憶値（更新前）を知っている
-            k_v, l_v, m_v = node_old_memory[v]
+            k_v, _, _ = node_old_memory.get(
+                v, (graph[v].bkb, graph[v].bld, graph[v].bkh)
+            )
 
             # 【功績ボーナス適用】B >= K_v の場合、ボーナス係数 B_a を適用
             if bandwidth >= k_v:
@@ -111,8 +177,6 @@ class PheromoneUpdater:
             else:
                 delta_pheromone = base_pheromone
 
-            # 【フェロモン更新】双方向にフェロモンを付加
-            # エッジ(u, v)と(v, u)の両方に同じ量を付加（対称性を保つ）
             graph.update_pheromone(u, v, delta_pheromone, bidirectional=True)
 
 
