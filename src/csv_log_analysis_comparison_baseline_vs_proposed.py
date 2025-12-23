@@ -156,7 +156,7 @@ if has_data:
             color="lightgray",
             linewidth=2.0,
             markersize=3,
-            label="Previous Method (Environment 1)",
+            label="Previous method (Environment 1)",
         )
 
     # 2. 既存手法（Environment 2: Random）
@@ -170,7 +170,7 @@ if has_data:
             color="gainsboro",
             linewidth=2.0,
             markersize=3,
-            label="Previous Method (Environment 2)",
+            label="Previous method (Environment 2)",
         )
 
     # 3. 提案手法（Environment 1: Ideal - 最大帯域 = 最適解）
@@ -184,7 +184,7 @@ if has_data:
             color="black",
             linewidth=2.0,
             markersize=3,
-            label="Proposed Method (Environment 1)",
+            label="Proposed method (Environment 1)",
         )
 
     # 4. 提案手法（Environment 2: Random）
@@ -198,7 +198,7 @@ if has_data:
             color="gray",
             linewidth=2.0,
             markersize=3,
-            label="Proposed Method (Environment 2)",
+            label="Proposed method (Environment 2)",
         )
 
     plt.ylim((0, 105))
@@ -317,7 +317,7 @@ if has_data:
                 color="lightgray",
                 linewidth=2.0,
                 markersize=3,
-                label="Previous Method (Fluctuation Environment)",
+                label="Previous method (Fluctuation environment)",
             )
 
         # 提案手法（帯域変動環境）
@@ -331,7 +331,7 @@ if has_data:
                 color="black",
                 linewidth=2.0,
                 markersize=3,
-                label="Proposed Method (Fluctuation Environment)",
+                label="Proposed method (Fluctuation environment)",
             )
 
         plt.ylim((0, 105))
