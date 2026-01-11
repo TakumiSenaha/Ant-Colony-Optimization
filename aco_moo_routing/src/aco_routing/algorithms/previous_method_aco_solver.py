@@ -445,10 +445,7 @@ class PreviousMethodACOSolver:
 
             while active_ants:
                 for ant in list(active_ants):
-                    if not ant.is_alive():
-                        active_ants.remove(ant)
-                        ant_log.append(-1)
-                        continue
+                    # 【既存実装との互換性】ゴール判定 → 探索/移動 → TTLチェック の順序
 
                     has_reached_any_goal = ant.current_node in goal_nodes_set
 
@@ -456,6 +453,7 @@ class PreviousMethodACOSolver:
                         next_node = self._select_next_node(ant)
                         if next_node is None:
                             active_ants.remove(ant)
+                            # 【ログ記録】ゴール未到達 = -1
                             ant_log.append(-1)
                             continue
 
@@ -467,6 +465,7 @@ class PreviousMethodACOSolver:
                             estimated_delay = ant.total_delay + edge_attr["delay"]
                             if estimated_delay > self.max_delay:
                                 active_ants.remove(ant)
+                                # 【ログ記録】制約違反 = -1（ゴール未到達）
                                 ant_log.append(-1)
                                 continue
 
@@ -476,6 +475,14 @@ class PreviousMethodACOSolver:
 
                         has_reached_any_goal = ant.current_node in goal_nodes_set
 
+                        # 【TTLチェック】ゴール未到達の場合のみ、TTLをチェック
+                        # 既存実装: elif len(ant.route) >= TTL: ant_log.append(0)
+                        if not has_reached_any_goal and ant.remaining_ttl <= 1:
+                            active_ants.remove(ant)
+                            # 【ログ記録】ゴール未到達 = -1
+                            ant_log.append(-1)
+                            continue
+
                     if has_reached_any_goal:
                         solution = ant.get_solution()
 
@@ -483,6 +490,7 @@ class PreviousMethodACOSolver:
                             solution_delay = solution[1]
                             if solution_delay > self.max_delay:
                                 active_ants.remove(ant)
+                                # 【ログ記録】制約違反 = -1（ゴール未到達）
                                 ant_log.append(-1)
                                 continue
 
@@ -492,6 +500,7 @@ class PreviousMethodACOSolver:
                         self.pheromone_updater.update_from_ant(ant, self.graph)
 
                         # ログ記録
+                        # 【既存実装との互換性】1 = 最適解、0 = 失敗
                         if recalculate_optimal:
                             if current_optimal_bottleneck is not None:
                                 if self.delay_constraint_enabled:
@@ -511,25 +520,28 @@ class PreviousMethodACOSolver:
                                             ):
                                                 is_optimal = True
                                                 break
-                                    log_value = 0 if is_optimal else -2
+                                    # 【ログ記録】1 = 最適解、-2 = 非最適解
+                                    log_value = 1 if is_optimal else -2
                                 else:
                                     solution_bandwidth = solution[0]
                                     bandwidth_ok = (
                                         solution_bandwidth >= current_optimal_bottleneck
                                     )
-                                    log_value = 0 if bandwidth_ok else -2
+                                    # 【ログ記録】1 = 最適解、-2 = 非最適解
+                                    log_value = 1 if bandwidth_ok else -2
                             else:
-                                log_value = -1
+                                # 【ログ記録】-2 = 非最適解（最適解が計算されていない）
+                                log_value = -2
                         elif optimal_solutions and metrics_calculator:
                             optimal_index = (
                                 metrics_calculator.find_optimal_solution_index(
                                     solution, optimal_solutions
                                 )
                             )
-                            log_value = (
-                                optimal_index if optimal_index is not None else -2
-                            )
+                            # 【ログ記録】1 = 最適解、-2 = 非最適解
+                            log_value = 1 if optimal_index is not None else -2
                         else:
+                            # 【ログ記録】-2 = 非最適解（最適解判定ができない）
                             log_value = -2
 
                         ant_log.append(log_value)
