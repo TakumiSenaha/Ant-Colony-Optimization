@@ -59,6 +59,11 @@ class PheromoneUpdater:
         # アリの解を取得（ボトルネック帯域、累積遅延、ホップ数）
         bandwidth, delay, hops = ant.get_solution()
 
+        # 【重要】既存実装との互換性のため、帯域を整数として扱う
+        # 既存実装（aco_main_bkb_available_bandwidth.py）では、bottleneck_bn = min(ant.width)がint
+        # 新実装でも同じように扱うため、intに変換してから使用
+        bandwidth_int = int(bandwidth)  # 帯域は10Mbps刻みなので整数として扱う
+
         # 【遅延制約チェック】制約違反のパスは学習・フェロモン付加を行わない
         delay_constraint_config = self.config["experiment"].get("delay_constraint", {})
         delay_constraint_enabled = delay_constraint_config.get("enabled", False)
@@ -82,7 +87,8 @@ class PheromoneUpdater:
             )
 
             # 学習値を更新（帯域のみ：K_v ← max(K_v, B)）
-            graph[node].update_bandwidth(bandwidth)
+            # 【重要】既存実装との互換性のため、整数として渡す
+            graph[node].update_bandwidth(float(bandwidth_int))
 
         # 【Step 2】経路上の各エッジにフェロモンを付加（帰還時の処理）
         # アリはゴールからスタートへ戻りながら、各エッジにフェロモンを付加
@@ -92,13 +98,14 @@ class PheromoneUpdater:
             # 【基本フェロモン付加量】f(B) = 10 * B
             # 【遅延制約が有効な場合】帯域/遅延のスコアを使用
             # Δτ = 10 * (B / D_path)
+            # 【重要】既存実装との互換性のため、整数として扱う
             if delay_constraint_enabled:
                 if delay > 0:
-                    base_pheromone = 10.0 * (bandwidth / delay)
+                    base_pheromone = 10.0 * (float(bandwidth_int) / delay)
                 else:
-                    base_pheromone = bandwidth * 10.0
+                    base_pheromone = float(bandwidth_int) * 10.0
             else:
-                base_pheromone = bandwidth * 10.0
+                base_pheromone = float(bandwidth_int) * 10.0
 
             # 【功績ボーナス判定】分散判断：各ノードが独立に判定
             # エッジ(u, v)の処理 = 帰還時にノードvからノードuへ戻る処理に対応
@@ -106,7 +113,8 @@ class PheromoneUpdater:
             k_v, l_v, m_v = node_old_memory[v]
 
             # 【功績ボーナス適用】B >= K_v の場合、ボーナス係数 B_a を適用
-            if bandwidth >= k_v:
+            # 【重要】既存実装との互換性のため、整数として比較
+            if bandwidth_int >= int(k_v):
                 delta_pheromone = base_pheromone * self.bonus_factor
             else:
                 delta_pheromone = base_pheromone
@@ -176,17 +184,13 @@ class PheromoneEvaporator:
         Args:
             graph: ルーティンググラフ
         """
-        # 全てのエッジを双方向で処理
+        # 【重要】有向グラフ対応:
+        # G.edges()には(u, v)と(v, u)の両方が含まれるため、
+        # 各エッジは1回だけ処理する（双方向処理は不要）
         for u, v in graph.graph.edges():
             # 【エッジ(u → v)の揮発計算】
             # ノードuから出ていくパスとして、ノードuのBKBと比較
             self._apply_evaporation_to_edge(graph, u, v)
-
-            # 【エッジ(v → u)の揮発計算】
-            # ノードvから出ていくパスとして、ノードvのBKBと比較
-            # 注意：ノードuとノードvのBKBは異なる可能性があるため、
-            #       エッジ(u → v)とエッジ(v → u)の揮発のされ方が異なる
-            self._apply_evaporation_to_edge(graph, v, u)
 
     def _apply_evaporation_to_edge(self, graph: RoutingGraph, u: int, v: int) -> None:
         """
@@ -197,40 +201,40 @@ class PheromoneEvaporator:
         - ノードuのBKBと比較してペナルティを判定
         - 「自分を通ってこの先、この品質でゴールできる」という情報に基づく
 
+        【既存実装との互換性】
+        既存実装（src/pheromone_update.py）では、base_evaporation_rateが残存率（0.98）として
+        直接使用されています。新実装でも同じように、残存率として扱います。
+
         Args:
             graph: ルーティンググラフ
             u: 始点ノード（このノードから出ていくパス）
             v: 終点ノード
         """
         # エッジの属性を取得
+        # 【既存実装との互換性】既存実装ではweight属性を使用
+        # 新実装ではbandwidth属性を使用（同じものを指す）
         edge_bandwidth = graph.graph.edges[u, v]["bandwidth"]
 
         # ノードuの学習値（BKB）：ノードuから出ていくパスなので、ノードuのBKBと比較
+        # 【既存実装との互換性】既存実装ではint型として扱う
         bkb_u = graph[u].bkb
 
-        base_evaporation = self.evaporation_rate  # 基本揮発率（例：0.02）
+        # 【既存実装との互換性】残存率として扱う
+        # 既存実装では base_evaporation_rate = V = 0.98（残存率）として使用
+        # 新実装では evaporation_rate = 0.02（揮発率）として設定されているため、
+        # 残存率 = 1 - 揮発率 = 1 - 0.02 = 0.98 として計算
+        retention_rate = 1.0 - self.evaporation_rate  # 残存率（例：0.98）
 
         # 【ペナルティ判定】
-        should_penalize = False
-
         # ペナルティは常に帯域のみで判定（どちらのフェロモン付加方法でも）
-        if edge_bandwidth < bkb_u:
-            should_penalize = True
+        # 【既存実装との互換性】既存実装ではint型として比較
+        # 既存実装: if weight_uv < bkb_u:
+        if int(edge_bandwidth) < int(bkb_u):
+            # ペナルティあり：残存率を下げる（既存実装と同じ）
+            # 既存実装: rate *= penalty_factor → 0.98 * 0.5 = 0.49
+            retention_rate *= self.penalty_factor
 
-        # 【揮発率の計算】
-        if should_penalize:
-            # ペナルティあり：揮発を促進（残存率を減少）
-            # 例：残存率 0.98 * 0.5 = 0.49（51%消える）
-            # → 揮発率に換算: 1 - 0.49 = 0.51（51%消える）
-            evaporation = 1.0 - (1.0 - base_evaporation) * self.penalty_factor
-        else:
-            # ペナルティなし：通常の揮発率
-            evaporation = base_evaporation
-
-        # 【残存率計算】残存率 = 1 - 揮発率
-        retention_rate = 1.0 - evaporation
-
-        # 【フェロモン更新】現在のフェロモン量 × 残存率
+        # 【フェロモン更新】現在のフェロモン量 × 残存率（既存実装と同じ）
         current = graph.graph.edges[u, v]["pheromone"]
         new_pheromone = math.floor(current * retention_rate)
         # 最小フェロモン量を保証
@@ -240,15 +244,23 @@ class PheromoneEvaporator:
 
 class SimplePheromoneUpdater:
     """
-    従来手法（Conventional Method）用のフェロモン更新クラス
+    フェロモン更新クラス（Ant System流）
 
-    【従来手法のフェロモン更新】
-    - ボトルネック帯域値に比例したフェロモンを単純に付加
-    - 式: Δτ_ij^k = Q * B_k（B_kはボトルネック帯域）
-    - 遅延制約が有効な場合: Δτ_ij^k = Q * (B_k / D_k)（B_kは帯域、D_kは遅延）
-    - ノード学習機能（BKB/BLD/BKH）は使用しない
-    - 功績ボーナスは使用しない（見つけた解の品質に関わらず同じ更新式）
-    - 更新タイミング：アリがゴールに到達した時点で即座に付加（オンライン更新）
+    注意: このクラスは提案手法や先行研究手法で使用されます。
+          純粋なACS（1997年論文準拠）では使用しません。
+
+    【使用される手法】
+    - 提案手法（Proposed Method）: オンライン更新
+    - 先行研究手法（Previous Method）: オンライン更新
+
+    【ACS論文準拠実装との違い】
+    - ACS: Global Bestのエッジのみに τ_ij ← (1-ρ)τ_ij + ρΔτ を適用
+    - このクラス: 全てのアリがゴール到達時に即座にフェロモンを付加
+
+    【大域更新規則（このクラスの仕様）】
+    - タイミング: アリがゴールに到達した時点で即座に
+    - 対象: そのアリの経路上の全エッジ
+    - 報酬 Δτ: ボトルネック帯域の正規化値（0.1〜1.0）
     """
 
     def __init__(self, config: Dict):
@@ -257,53 +269,77 @@ class SimplePheromoneUpdater:
             config: 設定辞書
         """
         self.config = config
-        # Q: 調整係数（フェロモン付加量のスケーリング）
-        self.q_factor = config["aco"].get("q_factor", 1.0)
-        # 評価関数（遅延制約が有効な場合に使用）
-        target_objectives = config["experiment"]["target_objectives"]
-        from .evaluator import SolutionEvaluator
-
-        self.evaluator = SolutionEvaluator(target_objectives)
+        # 正規化定数: 帯域幅を0〜1に正規化するための除数
+        self.bandwidth_normalization = config["aco"].get(
+            "bandwidth_normalization", 100.0
+        )
+        # 大域学習率 ρ（論文標準値: 0.1）
+        self.rho = config["aco"]["evaporation_rate"]
 
     def update_from_ant(self, ant: Ant, graph: RoutingGraph) -> None:
         """
-        アリがゴールに到達した際にフェロモンを更新（従来手法）
+        Global Bestアリの経路にフェロモンを更新（ACS方式）
 
-        帯域のみ最適化: Δτ_ij^k = Q * B_k （B_kはボトルネック帯域）
-        遅延制約が有効な場合: Δτ_ij^k = Q * (B_k / D_k)（B_kは帯域、D_kは遅延）
+        論文の式: τ_ij ← (1-ρ)τ_ij + ρΔτ_ij
+        ここで、Δτ_ij = B_gb^norm（Global Bestのボトルネック帯域、正規化後）
+
+        MBL問題の解釈:
+        - ボトルネック帯域が広いほどΔτが大きい（TSPの「短い経路ほど良い」に対応）
+        - 正規化により、Δτは0.1〜1.0の範囲に収まる
+        - ρ=0.1により、フェロモンは徐々に増加（爆発的な増加を防ぐ）
 
         Args:
-            ant: ゴールに到達したアリ
+            ant: Global Bestアリ（最良解を持つアリ）
             graph: ルーティンググラフ
         """
         # アリの解を取得（ボトルネック帯域、累積遅延、ホップ数）
         bandwidth, delay, hops = ant.get_solution()
 
-        # 評価関数を使用してスコアを計算
-        # 帯域のみ最適化: score = bandwidth
-        # 遅延制約が有効な場合: score = bandwidth / delay
-        score = self.evaluator.evaluate(bandwidth, delay, hops)
+        # 【正規化】ボトルネック帯域を0〜1の範囲に変換
+        # η_ij = B_ij / C_norm と同じ正規化を適用
+        bandwidth_normalized = bandwidth / self.bandwidth_normalization
 
-        # フェロモン付加量 = Q * score
-        delta_pheromone = self.q_factor * score
+        # 【報酬計算】Δτ = B_gb^norm
+        # TSPの Δτ = 1/L_gb（短い経路ほど大きい報酬）に対応
+        # MBLでは Δτ = B_gb^norm（広い帯域ほど大きい報酬）
+        delta_tau = bandwidth_normalized
 
-        # 経路上の各エッジにフェロモンを付加（双方向）
+        # 【大域更新】Global Bestの経路上の各エッジに対して更新
+        # 論文の式: τ_ij ← (1-ρ)τ_ij + ρΔτ_ij
         route_edges = ant.get_route_edges()
         for u, v in route_edges:
+            # 現在のフェロモン値を取得
+            edge_attr = graph.get_edge_attributes(u, v)
+            current_tau = edge_attr["pheromone"]
+
+            # 新しいフェロモン値を計算
+            # τ_new = (1-ρ)τ_old + ρΔτ
+            new_tau = (1 - self.rho) * current_tau + self.rho * delta_tau
+
+            # フェロモンの差分を計算して更新
+            delta_pheromone = new_tau - current_tau
             graph.update_pheromone(u, v, delta_pheromone, bidirectional=True)
 
 
 class SimplePheromoneEvaporator:
     """
-    従来手法（Conventional Method）用のフェロモン揮発クラス
+    フェロモン揮発クラス（Ant System流）
 
-    【従来手法のフェロモン揮発】
-    - 単純な定率揮発のみを実行
-    - 式: τ_ij(t+1) = (1 - ρ) * τ_ij(t)（ρは揮発率）
-    - ペナルティ付き揮発は使用しない
-    - BKBベースの揮発は使用しない
-    - 全エッジで同じ揮発率を適用
-    - 揮発タイミング：世代終了時に全エッジを揮発
+    注意: このクラスは提案手法や先行研究手法で使用されます。
+          純粋なACS（1997年論文準拠）では使用しません。
+
+    【使用される手法】
+    - 提案手法（Proposed Method）: 世代終了時の全エッジ揮発
+    - 先行研究手法（Previous Method）: 世代終了時の全エッジ揮発
+
+    【ACS論文準拠実装との違い】
+    - ACS: Global Bestのエッジのみ揮発（τ_ij ← (1-ρ)τ_ij + ρΔτ の一部）
+    - このクラス: 全エッジを無差別に揮発
+
+    【揮発規則（このクラスの仕様）】
+    - タイミング: 世代終了時
+    - 対象: 全てのエッジ（無差別）
+    - 式: τ_ij ← (1-ρ)τ_ij
     """
 
     def __init__(self, config: Dict):
@@ -312,18 +348,24 @@ class SimplePheromoneEvaporator:
             config: 設定辞書
         """
         self.config = config
+        # ρ: 大域学習率（論文標準値: 0.1）
         self.evaporation_rate = config["aco"]["evaporation_rate"]
 
     def evaporate(self, graph: RoutingGraph) -> None:
         """
-        フェロモンを揮発（従来手法）
+        フェロモンを揮発（ACS方式）
 
-        式: τ_ij(t+1) = (1 - ρ) * τ_ij(t)
+        論文の式: τ_ij ← (1-ρ)τ_ij
+
+        MBL問題での意味:
+        - 過去の経験（フェロモン）を徐々に忘却する
+        - ρ=0.1なので、毎世代10%が揮発し、90%が残存
+        - これにより、古い情報の影響を抑え、環境変化に対応可能
 
         Args:
             graph: ルーティンググラフ
         """
-        # 単純な定率揮発
+        # 全エッジに対して定率揮発を適用
         graph.evaporate_pheromone(self.evaporation_rate)
 
 

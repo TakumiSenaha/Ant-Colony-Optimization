@@ -204,7 +204,7 @@ if has_data:
     plt.ylim((0, 105))
     plt.xlim(left=0)
     plt.xlabel("Generation", fontsize=AXIS_LABEL_FONTSIZE)
-    plt.ylabel("Optimal Path Selection Ratio [%]", fontsize=AXIS_LABEL_FONTSIZE)
+    plt.ylabel("Optimal path selection ratio [%]", fontsize=AXIS_LABEL_FONTSIZE)
     plt.legend(fontsize=16, loc="best", frameon=True, ncol=1)
 
     # 論文標準の軸設定（箱型：全ての枠線を表示）
@@ -337,7 +337,7 @@ if has_data:
         plt.ylim((0, 105))
         plt.xlim(left=0)
         plt.xlabel("Generation", fontsize=AXIS_LABEL_FONTSIZE)
-        plt.ylabel("Optimal Path Selection Ratio [%]", fontsize=AXIS_LABEL_FONTSIZE)
+        plt.ylabel("Optimal path selection ratio [%]", fontsize=AXIS_LABEL_FONTSIZE)
         plt.legend(fontsize=16, loc="best", frameon=True, ncol=1)
 
         # 論文標準の軸設定（箱型：全ての枠線を表示）

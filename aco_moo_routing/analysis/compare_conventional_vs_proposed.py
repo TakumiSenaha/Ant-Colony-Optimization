@@ -268,11 +268,14 @@ def plot_series(
 ):
     plt.figure(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
     markers = ["o", "s", "^", "D", "v", "<", ">"]
-    # 提案手法を黒、既存手法をグレーに
+    # 論文向け配色（色覚多様性に配慮: Okabe-Ito 系）
     color_map = {
-        "Proposed": "black",
-        "ACS": "darkgray",  # Ant Colony System
-        "Conventional": "darkgray",  # 後方互換性のため
+        "NM-BKB-ACO (Proposed)": "#0072B2",  # Blue
+        "Modified ACS": "#009E73",  # Bluish Green
+        # 後方互換性
+        "Proposed": "#0072B2",
+        "ACS": "#009E73",
+        "Conventional": "#009E73",
     }
 
     for idx, (label, values) in enumerate(series.items()):
@@ -384,8 +387,8 @@ def main():
     for env in args.environments:
         series: Dict[str, List[float]] = {}
         for method, label in [
-            ("conventional", "ACS"),  # Ant Colony System
-            ("proposed", "Proposed"),
+            ("conventional", "Modified ACS"),
+            ("proposed", "NM-BKB-ACO (Proposed)"),
         ]:
             path = results_root / method / env / args.opt_type / "ant_solution_log.csv"
             if not path.exists():
@@ -428,10 +431,10 @@ def main():
         out_path_base = out_dir / f"comparison_{env}_{args.metric}"
         title = f"{env} ({args.metric})"
         if args.metric == "is_optimal":
-            ylabel = "Optimal Path Selection Ratio [%]"
+            ylabel = "Optimal Path Selection Rate [%]"
             y_max = 105.0
         elif args.metric == "is_unique_optimal":
-            ylabel = "Unique Optimal Selection Ratio [%]"
+            ylabel = "Unique Optimal Path Selection Rate [%]"
             y_max = 105.0
         elif args.metric == "avg_quality":
             ylabel = "Derived Bottleneck / Optimal Bottleneck"

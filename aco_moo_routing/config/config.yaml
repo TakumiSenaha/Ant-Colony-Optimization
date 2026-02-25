@@ -14,7 +14,7 @@ experiment:
 
   # スタートノード切り替え設定
   start_switching:
-    enabled: false # スタートノードを切り替えるかどうか（遅延制約テスト時はfalse）
+    enabled: true # スタートノードを切り替えるかどうか（遅延制約テスト時はfalse）
     switch_interval: 100 # 何世代ごとにスタートノードを切り替えるか
     start_nodes: [] # スタートノードのリスト（空の場合は自動生成、例: [0, 10, 20, 30, 40, 50]）
 
@@ -37,47 +37,66 @@ graph:
 aco:
   # ACO手法の選択
   # "proposed" (提案手法)
-  # "conventional" (従来手法、beta_bandwidthの値で動作が変わる)
+  # "conventional" (従来手法、ACS論文準拠の実装)
   # "basic_aco_no_heuristic" (従来手法1：基本ACO、β=0、ヒューリスティックなし)
   # "basic_aco_with_heuristic" (従来手法2：基本ACO、β=1、ヒューリスティックあり)
   # "previous" (先行研究：エッジベースの学習、w_ij^min/w_ij^maxを使用)
-  method: "proposed"
+  method: "conventional"
 
-  # 従来手法用のパラメータ（method: "conventional" の場合に使用）
-  q_factor: 1.0 # フェロモン付加量の調整係数（Δτ = Q * B_k）
+  # === ACS for MBL 論文準拠パラメータ ===
+  # 出典: Dorigo & Gambardella (1997) - IEEE Transactions on Evolutionary Computation
+  # Section III-D. ACS Parameter Settings (p.56)
 
   # フェロモンの影響度
+  # 論文標準値: α = 1.0
+  # MBL問題: 状態遷移規則の確率計算でのみ使用（α=1なので実質τそのもの）
   alpha: 1.0
 
-  # ヒューリスティック情報の重要度（目的関数ごと）
+  # ヒューリスティック情報の重要度（提案手法・先行研究用）
+  # 既存実装（aco_main_bkb_available_bandwidth.py）と同じ値
+  # 注意: 従来手法（conventional）はConventionalACOSolver内でβ=1.0を設定
+  #       （単純適用版: β=2.0だと強すぎるため、1.0に弱める）
   beta_bandwidth: 1.0
   beta_delay: 1.0
   beta_hops: 1.0
 
-  # 状態遷移ルール
-  # ACS方式のPseudo-Random-Proportional Rule（従来手法用）
-  q0: 0.9 # 最良エッジを選択する確率（0.0-1.0）。大きいほどexploitation（活用）が強い
+  # フェロモン揮発率（提案手法・先行研究用）
+  # 既存実装: V = 0.98（残存率）、揮発率 = 0.02
+  # 注意: 従来手法（conventional）はConventionalACOSolver内でρ=0.1を設定
+  evaporation_rate: 0.02
 
-  # ACS方式のローカル更新用パラメータ（従来手法用）
-  local_update_xi: 0.1 # ローカル更新の強度（0.0-1.0）
-  initial_pheromone: 100.0 # 初期フェロモン値τ_0
-
-  epsilon: 0.1 # ε-Greedy法（提案手法・先行研究手法で使用）
-
-  # 異質なアリ（Heterogeneous Ants）の設定
-  # 注意: 現在は未使用。全てのアリは同じパラメータ（beta_bandwidth=1.0, beta_delay=1.0）で経路を選択します。
-  # heterogeneous_ants:
-  #   enabled: false # 異質なアリを使用するか
-  #   bandwidth_preference_weight: 2.0 # 帯域重視のアリの帯域重み
-  #   bandwidth_preference_delay_weight: 0.5 # 帯域重視のアリの遅延重み
-  #   delay_preference_weight: 0.5 # 遅延重視のアリの帯域重み
-  #   delay_preference_delay_weight: 2.0 # 遅延重視のアリの遅延重み
-  #   bandwidth_preference_ratio: 0.5 # 帯域重視のアリの割合（0.0-1.0）
-
-  # フェロモン関連
-  evaporation_rate: 0.02 # 揮発率（1 - 残存率0.98）
+  # フェロモンの範囲制限（提案手法・先行研究用）
+  # 既存実装（aco_main_bkb_available_bandwidth.py）と同じ値
+  # min_pheromone: ベース値（実際には次数で計算: 100 * 3 // degree）
+  # max_pheromone: 帯域^5で計算
+  # 注意: 従来手法（conventional）はConventionalACOSolver内でmin=0.01, max=10.0を設定
+  #       （単純適用版: ηとΔτを一貫して正規化したため、正規化スケールに合わせる）
   min_pheromone: 100
   max_pheromone: 1000000000
+
+  # === 従来手法（ACS）専用パラメータ ===
+  # Global Best更新戦略（環境変化への適応性向上）
+  #
+  # 戦略タイプ:
+  #   "ttl": TTLモード（一定期間でリセット）
+  #          - Global Bestが一定世代経過後に無効化
+  #          - 環境変化後、古い解に固執→期限切れ後に急に再探索
+  #          - グラフで見ると「階段状」の性能回復
+  #   "window": スライディングウィンドウモード（推奨）
+  #             - 直近N世代の履歴から最良を選択
+  #             - 環境変化に滑らかに適応
+  #             - より「賢い」挙動を示す
+  #
+  # 推奨: "window"をメインの比較対象（Modified ACS）として使用
+  global_best_update_strategy: "window" # "ttl" または "window"
+
+  # Global Best保持期間/ウィンドウサイズ
+  # - TTLモード: この世代数を超えるとGlobal Bestをリセット
+  # - Windowモード: この世代数分の履歴を保持
+  global_best_retention: 100
+
+  # === 提案手法・先行研究手法用パラメータ ===
+  epsilon: 0.1 # ε-Greedy法（提案手法・先行研究手法で使用）
 
   # TTL（生存時間）
   ttl: 100
@@ -86,9 +105,10 @@ aco:
   learning:
     bkb_window_size: 100 # リングバッファサイズ（BKB/BLD/BKH共通）
     bonus_factor: 2.0 # 功績ボーナス係数
-    penalty_factor: 0.5 # BKBベースペナルティ係数
+    penalty_factor: 0.1 # BKBベースペナルティ係数
     volatilization_mode: 3 # 3: BKBベースのペナルティ付き揮発
-    bkb_evaporation_rate: 0.001 # BKB値の揮発率（1 - 残存率0.999）
+    bkb_evaporation_rate: 0.001 # BKB値の揮発率（残存率 = 1 - 0.001 = 0.999）
+    # 注意: aco_solver.pyでは0.999（残存率）を直接使用しているため、このパラメータは未使用
     delay_tolerance: 5.0 # 遅延の許容誤差（ms）
 
 # パレートフロンティア計算

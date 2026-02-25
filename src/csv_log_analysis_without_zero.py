@@ -90,7 +90,7 @@ for i, row in enumerate(transpose):
 # Graph settings
 plt.ylim((0, 100))
 plt.xlabel("Generation", fontsize=20)
-plt.ylabel("Routing Ratio [%]", fontsize=20)
+plt.ylabel("Path Selection Ratio [%]", fontsize=20)
 
 # Reverse legend order
 handles, labels = plt.gca().get_legend_handles_labels()

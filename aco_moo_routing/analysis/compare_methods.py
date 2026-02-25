@@ -58,24 +58,24 @@ python aco_moo_routing/analysis/compare_methods.py \
 【比較可能な指標（--metric オプション）】
   1. is_optimal: 最適解到達率 [%]
      - 各世代で、少なくとも1匹のアリが最適解を発見したシミュレーションの割合
-  
+
   2. is_unique_optimal: ユニーク最適解到達率 [%]
      - 各世代で、少なくとも1匹のアリがユニーク最適解を発見したシミュレーションの割合
-  
+
   3. avg_quality: 平均品質スコア (0.0 ~ 1.0)
      - 全アリの品質スコアの平均値
      - 探索全体の品質を評価
-  
+
   4. max_quality: 最大品質スコアの平均 (0.0 ~ 1.0)
      - 各シミュレーションの最良解の平均値
      - 最良解発見能力を評価
 
 【手法名のマッピング】
-  - conventional: ACS (Ant Colony System)
+  - conventional: Modified ACS
   - basic_aco_no_heuristic: Basic ACO w/o Heuristic (β=0)
   - basic_aco_with_heuristic: Basic ACO w/ Heuristic (β=1)
-  - previous: Previous Method (Edge-based learning)
-  - proposed: Proposed Method (Node-based learning)
+  - previous: NM-MMC-ACO
+  - proposed: NM-BKB-ACO (Proposed)
 
 【環境名】
   - manual: 手動設定トポロジ（最適経路を100Mbpsに設定）
@@ -90,7 +90,7 @@ python aco_moo_routing/analysis/compare_methods.py \
 
 import csv
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Set, Tuple
 
 import matplotlib.pyplot as plt
 
@@ -104,19 +104,22 @@ FIGURE_HEIGHT = 7  # グラフの縦幅（論文形式で統一）
 METHOD_LABELS = {
     "basic_aco_no_heuristic": "Basic ACO w/o Heuristic",
     "basic_aco_with_heuristic": "Basic ACO w/ Heuristic",
-    "previous": "Previous Method",
-    "proposed": "Proposed Method",
-    "conventional": "ACS",  # Ant Colony System
+    # 用語統一（確定案）
+    "proposed": "NM-BKB-ACO (Proposed)",
+    "previous": "NM-MMC-ACO",
+    "conventional": "Modified ACS",
 }
 
-# 色のマッピング（モノクロ、提案手法が一番黒、それ以外は段階的に灰色）
-# 順序: proposed (黒) > previous (濃いグレー) > conventional (ACS) > basic_aco_with_heuristic (中グレー) > basic_aco_no_heuristic (薄いグレー)
+# 色のマッピング（論文向け・色覚多様性に配慮: Okabe-Ito 系）
+# - 提案手法は強調（Blue）
+# - 先行手法・比較手法は識別しやすい色
+# - ベースライン（Basic ACO）はグレー系
 METHOD_COLORS = {
-    "proposed": "black",  # 一番黒（提案手法）
-    "previous": "dimgray",  # 濃いグレー（先行研究）
-    "conventional": "darkgray",  # 濃いグレー（ACS）
-    "basic_aco_with_heuristic": "gray",  # 中程度のグレー（基本ACO w/ ヒューリスティック）
-    "basic_aco_no_heuristic": "lightgray",  # 薄いグレー（基本ACO w/o ヒューリスティック）
+    "proposed": "#0072B2",  # Blue
+    "previous": "#D55E00",  # Vermillion
+    "conventional": "#009E73",  # Bluish Green
+    "basic_aco_with_heuristic": "#7F7F7F",  # Gray
+    "basic_aco_no_heuristic": "#BDBDBD",  # Light Gray
 }
 
 # 線スタイルのマッピング（環境ごと）
@@ -243,7 +246,6 @@ def quality_scores_avg(
     品質スコア（quality_score=8）の世代ごとの平均値を算出。
     """
     scores: List[float] = []
-    sims = len(sim_rows)
     for g in range(generations):
         all_scores: List[float] = []
         for sim in sim_rows:
@@ -267,7 +269,6 @@ def quality_scores_max(
     品質スコア（quality_score=8）の世代ごとの最大値の平均を算出。
     """
     scores: List[float] = []
-    sims = len(sim_rows)
     for g in range(generations):
         max_scores_per_sim: List[float] = []
         for sim in sim_rows:
@@ -285,7 +286,7 @@ def quality_scores_max(
 
 
 def plot_series(
-    series: Dict[str, Tuple[List[float], str, str]],
+    series: Dict[str, Tuple[List[float], str, str, str]],
     ylabel: str,
     output_base: Path,
     y_max: float = 105.0,
@@ -293,13 +294,14 @@ def plot_series(
     """
     複数の系列を描画する。
 
-    series のキーはラベル、値は (values, method, env) のタプル。
+    series のキーは内部用、値は (values, method, env, legend_label) のタプル。
     """
     plt.figure(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
 
     marker_idx = 0
+    seen_legend_labels: Set[str] = set()
     for label, data_tuple in series.items():
-        values, method, env = data_tuple
+        values, method, env, legend_label = data_tuple
         x_values = list(range(len(values)))
 
         # 色と線スタイルを決定
@@ -307,6 +309,12 @@ def plot_series(
         linestyle = ENV_LINESTYLES.get(env, "-")
         marker = MARKERS[marker_idx % len(MARKERS)]
         marker_idx += 1
+
+        # 凡例は「手法名だけ」に統一（同一手法は1回だけ表示）
+        plot_label = (
+            legend_label if legend_label not in seen_legend_labels else "_nolegend_"
+        )
+        seen_legend_labels.add(legend_label)
 
         plt.plot(
             x_values,
@@ -316,7 +324,7 @@ def plot_series(
             color=color,
             linewidth=2.0,
             markersize=4,
-            label=label,
+            label=plot_label,
         )
 
     plt.ylim((0, y_max))
@@ -358,6 +366,21 @@ def plot_series(
     print(f"✅ グラフを保存しました: {out_svg}")
     plt.show()  # プレビュー表示
     plt.close()
+
+
+def load_metric_values(
+    path: Path, metric: str, ants: int, generations: int
+) -> List[float]:
+    """ant_solution_log.csv から指定 metric の世代系列を抽出する。"""
+    if metric in ["avg_quality", "max_quality"]:
+        sims_float = load_ant_solution_log_float(path, ants, generations)
+        if metric == "avg_quality":
+            return quality_scores_avg(sims_float, ants, generations, col=8)
+        return quality_scores_max(sims_float, ants, generations, col=8)
+
+    col_idx = 5 if metric == "is_optimal" else 7
+    sims = load_ant_solution_log(path, ants, generations)
+    return success_rates(sims, ants, generations, col_idx)
 
 
 def main():
@@ -418,8 +441,8 @@ def main():
     default_results = script_dir.parent / "results"
     results_root = Path(args.results_dir) if args.results_dir else default_results
 
-    # 系列データを収集（ラベル → (values, method, env) のタプル）
-    series: Dict[str, Tuple[List[float], str, str]] = {}
+    # 系列データを収集（内部キー → (values, method, env, legend_label)）
+    series: Dict[str, Tuple[List[float], str, str, str]] = {}
 
     for method in args.methods:
         for env in args.environments:
@@ -428,39 +451,21 @@ def main():
                 print(f"⚠️ スキップ: {path} がありません。")
                 continue
 
-            # ラベルを生成（手法名 + 環境名）
+            # 凡例ラベルは「手法名のみ」に統一
             method_label = METHOD_LABELS.get(method, method)
-            if len(args.environments) > 1 or len(args.methods) > 1:
-                # 複数環境または複数手法の場合は環境名も含める
-                label = f"{method_label} ({env})"
-            else:
-                # 単一環境かつ単一手法の場合は手法名のみ
-                label = method_label
+            legend_label = method_label
 
             try:
-                if args.metric in ["avg_quality", "max_quality"]:
-                    # 品質スコアの場合は浮動小数点値で読み込む
-                    sims_float = load_ant_solution_log_float(
-                        path, args.ants, args.generations
-                    )
-                    if args.metric == "avg_quality":
-                        values = quality_scores_avg(
-                            sims_float, args.ants, args.generations, col=8
-                        )
-                    else:  # max_quality
-                        values = quality_scores_max(
-                            sims_float, args.ants, args.generations, col=8
-                        )
-                else:
-                    # is_optimal または is_unique_optimal
-                    col_idx = 5 if args.metric == "is_optimal" else 7
-                    sims = load_ant_solution_log(path, args.ants, args.generations)
-                    values = success_rates(sims, args.ants, args.generations, col_idx)
+                values = load_metric_values(
+                    path, args.metric, args.ants, args.generations
+                )
             except ValueError as e:
                 print(f"⚠️ {e}")
                 continue
 
-            series[label] = (values, method, env)
+            # 内部キーはユニークにして、複数環境でも上書きされないようにする
+            key = f"{method}::{env}"
+            series[key] = (values, method, env, legend_label)
 
     if not series:
         print("⚠️ 有効なデータがありません。")
@@ -478,10 +483,10 @@ def main():
 
     # Y軸ラベルと最大値を決定
     if args.metric == "is_optimal":
-        ylabel = "Optimal Path Selection Ratio [%]"
+        ylabel = "Optimal Path Selection Rate [%]"
         y_max = 105.0
     elif args.metric == "is_unique_optimal":
-        ylabel = "Unique Optimal Selection Ratio [%]"
+        ylabel = "Unique Optimal Path Selection Rate [%]"
         y_max = 105.0
     elif args.metric == "avg_quality":
         ylabel = "Derived Bottleneck / Optimal Bottleneck"

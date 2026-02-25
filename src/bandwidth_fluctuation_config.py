@@ -13,7 +13,7 @@ import networkx as nx  # type: ignore[import-untyped]
 
 # ===== 帯域変動設定パラメータ =====
 # ★★★ メイン設定：ここを変更するだけで全ファイルに反映されます ★★★
-BANDWIDTH_UPDATE_INTERVAL = 1  # 何世代ごとに帯域を更新するか（1=毎世代）
+BANDWIDTH_UPDATE_INTERVAL = 100000  # 何世代ごとに帯域を更新するか（1=毎世代）
 
 # ===== エッジ選択方法 =====
 # "hub": ハブノード選択（推奨）

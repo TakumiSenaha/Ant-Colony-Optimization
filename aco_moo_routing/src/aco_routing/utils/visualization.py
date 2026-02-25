@@ -315,10 +315,7 @@ class Visualizer:
                 for sim_log in ant_logs:
                     optimal_index = sim_log[gen_idx]
                     # 統一形式: 0以上 = 最適解のインデックス、-1 = ゴール未到達、-2 = 非最適解
-                    if (
-                        optimal_index >= 0
-                        and optimal_index < num_optimal_solutions
-                    ):
+                    if optimal_index >= 0 and optimal_index < num_optimal_solutions:
                         # 最適解に到達
                         optimal_counts_sum[optimal_index] += 1
                     else:

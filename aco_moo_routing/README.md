@@ -72,6 +72,94 @@ python run_experiment.py
 - **Hypervolume**: パレートフロンティアが覆う超体積
 - **Convergence Rate**: 世代ごとの収束率の推移
 
+## 📈 結果の可視化
+
+### 4手法の比較（`compare_methods.py`）
+
+4手法（Basic ACO w/o Heuristic, Basic ACO w/ Heuristic, Previous Method, Proposed Method）を任意に選択して比較できます。
+
+**基本的な使用例**:
+
+```bash
+# プロジェクトルートから実行
+
+# 1. 提案手法のみを描画
+python aco_moo_routing/analysis/compare_methods.py \
+  --generations 1000 --ants 10 \
+  --methods proposed \
+  --environments static \
+  --opt-type bandwidth_only \
+  --metric is_optimal
+
+# 2. 4手法すべてを比較
+python aco_moo_routing/analysis/compare_methods.py \
+  --generations 1000 --ants 10 \
+  --methods basic_aco_no_heuristic basic_aco_with_heuristic previous proposed \
+  --environments static \
+  --opt-type bandwidth_only \
+  --metric is_optimal
+
+# 3. 複数環境を同時に描画
+python aco_moo_routing/analysis/compare_methods.py \
+  --generations 1000 --ants 10 \
+  --methods proposed \
+  --environments static node_switching bandwidth_fluctuation \
+  --opt-type bandwidth_only \
+  --metric is_optimal
+
+# 4. 複数手法×複数環境
+python aco_moo_routing/analysis/compare_methods.py \
+  --generations 1000 --ants 10 \
+  --methods previous proposed \
+  --environments static bandwidth_fluctuation \
+  --opt-type bandwidth_only \
+  --metric is_optimal
+
+# 5. 品質スコア（avg_quality）で比較
+python aco_moo_routing/analysis/compare_methods.py \
+  --generations 1000 --ants 10 \
+  --methods basic_aco_no_heuristic basic_aco_with_heuristic previous proposed \
+  --environments static \
+  --opt-type bandwidth_only \
+  --metric avg_quality
+
+# 6. 手動設定トポロジ環境（manual）で比較
+python aco_moo_routing/analysis/compare_methods.py \
+  --generations 1000 --ants 10 \
+  --methods basic_aco_no_heuristic basic_aco_with_heuristic previous proposed \
+  --environments manual \
+  --opt-type bandwidth_only \
+  --metric is_optimal
+```
+
+**比較可能な指標（--metric オプション）**:
+- `is_optimal`: 最適解到達率 [%]
+- `is_unique_optimal`: ユニーク最適解到達率 [%]
+- `avg_quality`: 平均品質スコア (0.0 ~ 1.0)
+- `max_quality`: 最大品質スコアの平均 (0.0 ~ 1.0)
+
+**利用可能な手法**:
+- `basic_aco_no_heuristic`: Basic ACO w/o Heuristic (β=0)
+- `basic_aco_with_heuristic`: Basic ACO w/ Heuristic (β=1)
+- `previous`: Previous Method (Edge-based learning)
+- `proposed`: Proposed Method (Node-based learning)
+
+**利用可能な環境**:
+- `manual`: 手動設定トポロジ（最適経路を100Mbpsに設定）
+- `static`: 静的ランダムグラフ
+- `node_switching`: コンテンツ要求ノード変動
+- `bandwidth_fluctuation`: 帯域変動
+
+**出力**:
+- ファイル名: `comparison_{methods}_{environments}_{metric}.eps` と `.svg`
+- 保存先: `results/analysis/` ディレクトリ（デフォルト）
+
+### その他の可視化スクリプト
+
+- `analyze_optimal_percentage.py`: 単一ログの可視化（最適率/品質スコアなど）
+- `compare_conventional_vs_proposed.py`: 従来手法 vs 提案手法の比較
+- `compare_delay_constraint.py`: 遅延制約の値ごとの比較
+
 ## 🎯 主要な機能
 
 ### 1. ノードの自律学習（BKB/BLD/BKH）

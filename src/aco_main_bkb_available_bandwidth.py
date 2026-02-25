@@ -1,5 +1,6 @@
 import csv
 import random
+from typing import Optional
 
 import networkx as nx  # type: ignore[import-untyped]
 
@@ -36,7 +37,7 @@ SIMULATIONS = 100  # シミュレーションの試行回数
 
 # ===== BKBモデル用パラメータ（リングバッファサイズ = 観測値数）=====
 TIME_WINDOW_SIZE = 100  # リングバッファサイズ（直近1000個の観測値を記憶）
-PENALTY_FACTOR = 0.5  # BKBを下回るエッジへのペナルティ(0.0-1.0)
+PENALTY_FACTOR = 0.1  # BKBを下回るエッジへのペナルティ(0.0-1.0)
 BKB_EVAPORATION_RATE = (
     0.999  # BKB値の揮発率（リングバッファ内の観測値は揮発しないが、BKB値にのみ適用）
 )
@@ -86,6 +87,38 @@ def set_pheromone_min_max_by_degree_and_width(graph: nx.Graph) -> None:
 VOLATILIZATION_MODE = 3
 
 # ===== 新しいパラメータ（功績ボーナス）=====
+
+
+def greedy_pheromone_path(
+    graph: nx.Graph, start_node: int, goal_node: int, ttl: int
+) -> Optional[list[int]]:
+    """
+    現在のフェロモン分布のみを頼りに貪欲に経路を構築する。
+    同値の場合は帯域が大きい方を選ぶ。
+    """
+    visited = set([start_node])
+    path = [start_node]
+    current = start_node
+    steps = 0
+
+    while current != goal_node and steps < ttl:
+        neighbors = [n for n in graph.neighbors(current) if n not in visited]
+        if not neighbors:
+            return None
+
+        def score(n: int) -> tuple[float, float]:
+            # フェロモンが大きいほど良い、同値なら帯域が大きいほど良い
+            return (graph[current][n]["pheromone"], graph[current][n]["weight"])
+
+        next_node = max(neighbors, key=score)
+        path.append(next_node)
+        visited.add(next_node)
+        current = next_node
+        steps += 1
+
+    if current == goal_node:
+        return path
+    return None
 
 
 # ===== 定数ε-Greedy法 =====
@@ -248,16 +281,105 @@ def grid_graph(num_nodes: int, lb: int = 1, ub: int = 10) -> nx.Graph:
 # ------------------ メイン処理 ------------------
 if __name__ == "__main__":  # noqa: C901
     # ===== ログファイルの初期化 =====
-    import os
+    import statistics
+    from pathlib import Path
 
-    log_filename = "./simulation_result/log_ant_available_bandwidth.csv"
-    if os.path.exists(log_filename):
-        os.remove(log_filename)
-        print(f"既存のログファイル '{log_filename}' を削除しました。")
+    # 結果ディレクトリの設定（run_experiment.pyと同じ構造）
+    project_root = Path(__file__).parent.parent
+    results_base_dir = project_root / "aco_moo_routing" / "results"
+    aco_method = "existing"  # 既存実装として識別
+    environment = "manual"  # manual環境
+    opt_type = "bandwidth_only"  # 帯域のみ最適化
+    results_dir = results_base_dir / aco_method / environment / opt_type
 
-    with open(log_filename, "w", newline="") as f:
-        pass  # 空のファイルを作成
-    print(f"ログファイル '{log_filename}' を初期化しました。")
+    # 既存のディレクトリを削除
+    if results_dir.exists():
+        import shutil
+
+        shutil.rmtree(results_dir)
+        print(f"既存のディレクトリ '{results_dir}' を削除しました。")
+
+    results_dir.mkdir(parents=True, exist_ok=True)
+    print(f"結果ディレクトリ: {results_dir}\n")
+
+    # CSVログファイルのパス
+    log_csv_path = results_dir / "ant_log.csv"
+    ant_solution_log_path = results_dir / "ant_solution_log.csv"
+    interest_log_path = results_dir / "interest_log.csv"
+    generation_stats_path = results_dir / "generation_stats.csv"
+
+    # 既存ファイルを削除
+    for p in [
+        log_csv_path,
+        ant_solution_log_path,
+        interest_log_path,
+        generation_stats_path,
+    ]:
+        if p.exists():
+            p.unlink()
+
+    # ant_log.csv（従来形式：互換のためヘッダーなし、2列）
+    with open(log_csv_path, "w", newline="") as f:
+        pass
+    # ant_solution_log.csv（新形式：ヘッダーあり）
+    with open(ant_solution_log_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "generation",
+                "ant_id",
+                "bandwidth",
+                "delay",
+                "hops",
+                "is_optimal",
+                "optimal_index",
+                "is_unique_optimal",
+                "quality_score",
+            ]
+        )
+    # interest_log.csv（世代ごとに1行）
+    with open(interest_log_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "generation",
+                "bandwidth",
+                "delay",
+                "hops",
+                "is_optimal",
+                "is_unique_optimal",
+                "quality_score",
+            ]
+        )
+    # generation_stats.csv（新形式：ヘッダーあり）
+    with open(generation_stats_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "generation",
+                "num_ants_reached",
+                "avg_bandwidth",
+                "max_bandwidth",
+                "min_bandwidth",
+                "std_bandwidth",
+                "avg_delay",
+                "max_delay",
+                "min_delay",
+                "std_delay",
+                "avg_hops",
+                "max_hops",
+                "min_hops",
+                "std_hops",
+                "avg_quality_score",
+                "max_quality_score",
+                "min_quality_score",
+                "std_quality_score",
+                "optimal_count",
+                "unique_optimal_count",
+                "interest_hit",
+            ]
+        )
+    print("ログファイルを初期化しました:", results_dir)
 
     # ===== 変動設定の表示 =====
     print_fluctuation_settings()
@@ -296,27 +418,32 @@ if __name__ == "__main__":  # noqa: C901
             print("経路が存在しません。スキップします。")
             continue
 
-        # # ★★★ 最適解の経路の帯域幅を100に設定（比較用：コミットccfcd98前の実装を参考）★★★
-        # try:
-        #     optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
-        #     print(f"最適経路: {' -> '.join(map(str, optimal_path))}")
-        #     # 最適経路の各エッジの帯域幅を100に設定（双方向）
-        #     for u, v in zip(optimal_path[:-1], optimal_path[1:]):
-        #         graph[u][v]["weight"] = 100
-        #         graph[v][u]["weight"] = 100
-        #         graph[u][v]["local_min_bandwidth"] = 100
-        #         graph[v][u]["local_min_bandwidth"] = 100
-        #         graph[u][v]["local_max_bandwidth"] = 100
-        #         graph[v][u]["local_max_bandwidth"] = 100
-        #         print(f"Set optimal path edge ({u} → {v}) to weight=100.")
-        #     print(f"最適経路の帯域幅を100に設定しました")
-        # except (nx.NetworkXNoPath, Exception):
-        #     print("最適経路が見つかりませんでした。スキップします。")
-        #     continue
+        # ★★★ 最適解の経路の帯域幅を100に設定（比較用：コミットccfcd98前の実装を参考）★★★
+        try:
+            optimal_path = max_load_path(graph, START_NODE, GOAL_NODE)
+            print(f"最適経路: {' -> '.join(map(str, optimal_path))}")
+            # 最適経路の各エッジの帯域幅を100に設定（双方向）
+            for u, v in zip(optimal_path[:-1], optimal_path[1:]):
+                graph[u][v]["weight"] = 100
+                graph[v][u]["weight"] = 100
+                graph[u][v]["local_min_bandwidth"] = 100
+                graph[v][u]["local_min_bandwidth"] = 100
+                graph[u][v]["local_max_bandwidth"] = 100
+                graph[v][u]["local_max_bandwidth"] = 100
+                print(f"Set optimal path edge ({u} → {v}) to weight=100.")
+            print("最適経路の帯域幅を100に設定しました")
+        except (nx.NetworkXNoPath, Exception):
+            print("最適経路が見つかりませんでした。スキップします。")
+            continue
 
         ant_log: list[int] = []
         bandwidth_change_log: list[int] = []  # 帯域変動の記録
         bandwidth_change_count = 0  # 帯域変動の累計回数
+
+        # 各世代のアリの詳細情報を記録
+        all_ant_solutions: list[list[tuple]] = []  # 世代ごとのアリ解リスト
+        all_interest_solutions: list[Optional[tuple]] = []  # 世代ごとのinterest解
+        all_optimal_bottlenecks: list[float] = []  # 世代ごとの最適ボトルネック帯域
 
         for generation in range(GENERATION):
             # === 変動モデルによる帯域変動（FLUCTUATION_MODELに応じて自動選択）===
@@ -334,6 +461,8 @@ if __name__ == "__main__":  # noqa: C901
             if current_optimal == 0:
                 # 経路が存在しない場合はスキップ
                 continue
+            # 各世代の最適解を保存
+            all_optimal_bottlenecks.append(current_optimal)
 
             # 帯域変動があった場合は通知
             if bandwidth_changed and generation % 50 == 0:
@@ -358,10 +487,42 @@ if __name__ == "__main__":  # noqa: C901
             ]
 
             temp_ant_list = list(ants)
+            generation_solutions: list[tuple] = []  # この世代のアリ解リスト
+
             while temp_ant_list:
                 ant_next_node_const_epsilon(
                     temp_ant_list, graph, ant_log, current_optimal, generation
                 )
+
+            # 到達したアリの解を記録
+            for ant in ants:
+                if ant.current == ant.destination and ant.width:
+                    bottleneck = min(ant.width)
+                    # 遅延は計算していないので0.0、ホップ数はlen(ant.route)-1
+                    delay = 0.0
+                    hops = len(ant.route) - 1
+                    solution = (float(bottleneck), delay, hops)
+                    generation_solutions.append(solution)
+
+            all_ant_solutions.append(generation_solutions)
+
+            # フェロモン貪欲解（interest）を計算
+            interest_path = greedy_pheromone_path(graph, START_NODE, GOAL_NODE, TTL)
+            interest_solution: Optional[tuple[float, float, int]] = None
+            if interest_path and len(interest_path) > 1:
+                interest_widths = [
+                    graph[interest_path[i]][interest_path[i + 1]]["weight"]
+                    for i in range(len(interest_path) - 1)
+                ]
+                interest_bottleneck = min(interest_widths) if interest_widths else 0.0
+                interest_delay = 0.0
+                interest_hops = len(interest_path) - 1
+                interest_solution = (
+                    float(interest_bottleneck),
+                    interest_delay,
+                    interest_hops,
+                )
+            all_interest_solutions.append(interest_solution)
 
             # フェロモンの揮発
             # ★★★ 共通モジュールを使用したフェロモン揮発 ★★★
@@ -411,13 +572,189 @@ if __name__ == "__main__":  # noqa: C901
                 except nx.NetworkXNoPath:
                     print("  最適経路: 経路なし")
 
-        # --- 結果の保存 ---
-        with open(log_filename, "a", newline="") as f:
+        # --- 結果の保存（run_experiment.pyと同じ形式） ---
+        # ant_log.csv: 2列（unique_optimal, any_optimal）
+        # 既存実装では0/1なので、-1（ゴール未到達）、-2（非最適解）、1（最適解）に変換
+        # ant_logを変換（各世代ごとに処理）
+        ant_log_converted = []
+        ant_log_idx = 0
+        for gen_idx, gen_solutions in enumerate(all_ant_solutions):
+            # 各世代の最適解を取得
+            gen_optimal = (
+                all_optimal_bottlenecks[gen_idx]
+                if gen_idx < len(all_optimal_bottlenecks)
+                else current_optimal
+            )
+            # この世代で到達したアリの数
+            num_reached = len(gen_solutions)
+            # この世代のant_log（ANT_NUM個の要素）
+            gen_ant_log = ant_log[ant_log_idx : ant_log_idx + ANT_NUM]
+            # 最適解に到達したアリの数（ant_logで1の数）
+            num_optimal = sum(1 for v in gen_ant_log if v == 1)
+            # 非最適解に到達したアリの数（到達したが最適解ではない）
+            num_not_optimal = num_reached - num_optimal
+            # ゴール未到達のアリの数
+            num_not_reached = ANT_NUM - num_reached
+
+            # ant_logの順序に従って変換
+            # ant_logには各アリの結果が順番に記録されている
+            # 1の場合は最適解、0の場合は非最適解または未到達
+            # 0のうち、到達したアリの数だけを-2（非最適解）に、残りを-1（未到達）に変換
+            not_optimal_count = 0
+            for val in gen_ant_log:
+                if val == 1:
+                    # 最適解に到達
+                    ant_log_converted.append(1)
+                elif not_optimal_count < num_not_optimal:
+                    # 非最適解に到達（到達したが最適解ではない）
+                    ant_log_converted.append(-2)
+                    not_optimal_count += 1
+                else:
+                    # ゴール未到達
+                    ant_log_converted.append(-1)
+
+            ant_log_idx += ANT_NUM
+
+        # 各シミュレーション終了後に追記（run_experiment.pyと同じ）
+        with open(log_csv_path, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(ant_log)
+            # 2列で書き込み（既存実装ではunique/anyの区別がないので同じ値）
+            for val in ant_log_converted:
+                writer.writerow([val, val])
+
+        # ant_solution_log.csv: 各アリの詳細情報
+        ant_rows = []
+        for gen_idx, gen_solutions in enumerate(all_ant_solutions):
+            # 各世代の最適解を取得
+            gen_optimal = (
+                all_optimal_bottlenecks[gen_idx]
+                if gen_idx < len(all_optimal_bottlenecks)
+                else current_optimal
+            )
+            for ant_id, sol in enumerate(gen_solutions):
+                b, d, h = sol
+                # 最適解判定（許容誤差を考慮、run_experiment.pyと同じロジック）
+                bw_tol = max(1e-6, abs(gen_optimal) * 1e-6)
+                is_optimal = 1 if b + bw_tol >= gen_optimal else 0
+                optimal_index = 0 if is_optimal else -1
+                is_unique = is_optimal  # 既存実装ではunique/anyの区別なし
+                quality_score = b / gen_optimal if gen_optimal > 0 else 0.0
+                ant_rows.append(
+                    [
+                        gen_idx,
+                        ant_id,
+                        b,
+                        d,
+                        h,
+                        is_optimal,
+                        optimal_index,
+                        is_unique,
+                        quality_score,
+                    ]
+                )
+            # 未到達アリを-1で補完
+            miss = max(0, ANT_NUM - len(gen_solutions))
+            for k in range(miss):
+                ant_rows.append(
+                    [gen_idx, len(gen_solutions) + k, -1, -1, -1, -1, -1, -1, -1]
+                )
+
+        # 各シミュレーション終了後に追記（run_experiment.pyと同じ）
+        if ant_rows:
+            with open(ant_solution_log_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerows(ant_rows)
+
+        # interest_log.csv: 世代ごとのinterest解
+        interest_rows = []
+        for gen_idx, interest_sol in enumerate(all_interest_solutions):
+            # 各世代の最適解を取得
+            gen_optimal = (
+                all_optimal_bottlenecks[gen_idx]
+                if gen_idx < len(all_optimal_bottlenecks)
+                else current_optimal
+            )
+            if interest_sol:
+                b, d, h = interest_sol
+                # 最適解判定（許容誤差を考慮、run_experiment.pyと同じロジック）
+                bw_tol = max(1e-6, abs(gen_optimal) * 1e-6)
+                is_optimal = 1 if b + bw_tol >= gen_optimal else 0
+                is_unique = is_optimal
+                quality_score = b / gen_optimal if gen_optimal > 0 else 0.0
+            else:
+                b = d = h = -1
+                is_optimal = is_unique = -1
+                quality_score = -1
+            interest_rows.append(
+                [gen_idx, b, d, h, is_optimal, is_unique, quality_score]
+            )
+
+        # 各シミュレーション終了後に追記（run_experiment.pyと同じ）
+        if interest_rows:
+            with open(interest_log_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerows(interest_rows)
+
+        # generation_stats.csv: 世代ごとの統計
+        def safe_mean(values):
+            return sum(values) / len(values) if values else 0.0
+
+        def safe_std(values):
+            return statistics.stdev(values) if len(values) >= 2 else 0.0
+
+        gen_rows = []
+        for gen_idx in range(GENERATION):
+            rows_g = [r for r in ant_rows if r[0] == gen_idx]
+            bw_list = [r[2] for r in rows_g if r[2] >= 0]
+            delay_list = [r[3] for r in rows_g if r[3] >= 0]
+            hops_list = [r[4] for r in rows_g if r[4] >= 0]
+            qs_list = [r[8] for r in rows_g if r[8] >= 0]
+            optimal_count = sum(1 for r in rows_g if r[5] == 1)
+            unique_optimal_count = sum(1 for r in rows_g if r[7] == 1)
+            num_ants_reached = len(bw_list)
+
+            # interest (世代ごと1行)
+            interest_row = next((r for r in interest_rows if r[0] == gen_idx), None)
+            interest_hit = 1 if interest_row and interest_row[4] == 1 else 0
+
+            gen_rows.append(
+                [
+                    gen_idx,
+                    num_ants_reached,
+                    safe_mean(bw_list),
+                    max(bw_list) if bw_list else 0.0,
+                    min(bw_list) if bw_list else 0.0,
+                    safe_std(bw_list),
+                    safe_mean(delay_list),
+                    max(delay_list) if delay_list else 0.0,
+                    min(delay_list) if delay_list else 0.0,
+                    safe_std(delay_list),
+                    safe_mean(hops_list),
+                    max(hops_list) if hops_list else 0,
+                    min(hops_list) if hops_list else 0,
+                    safe_std(hops_list),
+                    safe_mean(qs_list),
+                    max(qs_list) if qs_list else 0.0,
+                    min(qs_list) if qs_list else 0.0,
+                    safe_std(qs_list),
+                    optimal_count,
+                    unique_optimal_count,
+                    interest_hit,
+                ]
+            )
+
+        # 各シミュレーション終了後に追記（run_experiment.pyと同じ）
+        if gen_rows:
+            with open(generation_stats_path, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerows(gen_rows)
 
         # 最終成功率の表示
-        final_success_rate = sum(ant_log) / len(ant_log) if ant_log else 0
+        final_success_rate = (
+            sum(1 for v in ant_log_converted if v == 1) / len(ant_log_converted)
+            if ant_log_converted
+            else 0
+        )
         total_bandwidth_changes = sum(bandwidth_change_log)
         print(
             f"✅ シミュレーション {sim+1}/{SIMULATIONS} 完了 - "

@@ -12,7 +12,7 @@ NetworkXをベースとしたグラフの生成と管理を行います。
 """
 
 import random
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import networkx as nx
 
@@ -81,63 +81,114 @@ class RoutingGraph:
         graph_type = self.config["graph"]["graph_type"]
         num_nodes = self.config["graph"]["num_nodes"]
 
+        # まず無向グラフを生成
         if graph_type == "barabasi_albert":
             num_edges = self.config["graph"]["num_edges"]
-            graph = nx.barabasi_albert_graph(num_nodes, num_edges)
+            undirected_graph = nx.barabasi_albert_graph(num_nodes, num_edges)
         elif graph_type == "erdos_renyi":
             edge_prob = self.config["graph"].get("edge_prob", 0.1)
-            graph = nx.erdos_renyi_graph(num_nodes, edge_prob)
+            undirected_graph = nx.erdos_renyi_graph(num_nodes, edge_prob)
         elif graph_type == "grid":
             import math
 
             side = int(math.sqrt(num_nodes))
-            graph = nx.grid_2d_graph(side, side)
+            undirected_graph = nx.grid_2d_graph(side, side)
             # ノードをint型に変換
             mapping = {(i, j): i * side + j for i in range(side) for j in range(side)}
-            graph = nx.relabel_nodes(graph, mapping)
+            undirected_graph = nx.relabel_nodes(undirected_graph, mapping)
         elif graph_type == "manual":
             # 手動設定トポロジ：BAモデルで生成し、後で最適経路を100Mbpsに設定
             # 最適経路の設定はrun_experiment.pyで行う
             num_edges = self.config["graph"]["num_edges"]
-            graph = nx.barabasi_albert_graph(num_nodes, num_edges)
+            undirected_graph = nx.barabasi_albert_graph(num_nodes, num_edges)
         else:
             raise ValueError(f"Unknown graph type: {graph_type}")
 
+        # 【重要】無向グラフを有向グラフに変換（双方向で異なる属性を持たせるため）
+        # 無向エッジ(u, v)を2つの有向エッジ(u→v, v→u)に変換
+        graph = nx.DiGraph()
+        graph.add_nodes_from(undirected_graph.nodes())
+        for u, v in undirected_graph.edges():
+            graph.add_edge(u, v)  # u → v
+            graph.add_edge(v, u)  # v → u （異なる属性を持てる）
+
         # エッジ属性を初期化
-        self._initialize_edge_attributes(graph)
+        # 【重要】既存実装との乱数消費順序の互換性のため、
+        # 無向グラフのエッジ順序を保存して使用
+        self._initialize_edge_attributes(graph, undirected_graph)
 
         return graph
 
-    def _initialize_edge_attributes(self, graph: nx.Graph) -> None:
+    def _initialize_edge_attributes(
+        self, graph: nx.DiGraph, undirected_graph: Optional[nx.Graph] = None
+    ) -> None:
         """
         エッジ属性（帯域、遅延、フェロモン）を初期化します。
 
         Args:
-            graph: 初期化するNetworkXのGraphオブジェクト
+            graph: 初期化するNetworkXのDiGraphオブジェクト（有向グラフ）
+            undirected_graph: 元の無向グラフ（乱数消費順序の互換性のため）
 
         Note:
             - 帯域幅: 10Mbps刻みでランダムに生成（設定ファイルのbandwidth_rangeに基づく）
             - 遅延: 1ms刻みでランダムに生成（設定ファイルのdelay_rangeに基づく）
             - フェロモン: 最小値で初期化（後でノードの次数と帯域に基づいて最大値が設定される）
             - 先行研究用: local_min_bandwidthとlocal_max_bandwidthも初期化
+            - 【重要】既存実装との互換性のため、無向グラフのエッジ順序で乱数を消費
         """
         bw_range = self.config["graph"]["bandwidth_range"]
         delay_range = self.config["graph"]["delay_range"]
         min_pheromone = self.config["aco"]["min_pheromone"]
         max_pheromone = self.config["aco"]["max_pheromone"]
 
-        for u, v in graph.edges():
-            # 帯域幅（Mbps）: 10刻みで生成
-            min_val = ((bw_range[0] + 9) // 10) * 10  # 10の倍数に切り上げ
-            max_val = (bw_range[1] // 10) * 10  # 10の倍数に切り下げ
+        # 【既存実装との互換性】帯域幅の乱数のみを消費
+        # 遅延は帯域幅から派生させることで、既存実装と同じ乱数消費順序を維持
+        # 既存実装（aco_main_bkb_available_bandwidth.py）では遅延を使用していない
+
+        # 【重要】既存実装との完全互換性のため、無向グラフのエッジ順序で乱数を消費
+        # undirected_graphが渡された場合（有向グラフ変換時）、そのエッジ順序を使用
+        # undirected_graphがNoneの場合（後方互換性）、graphのエッジ順序を使用
+        if undirected_graph is not None:
+            edge_order = list(undirected_graph.edges())
+        else:
+            # 後方互換性: graphが無向グラフの場合
+            edge_order = list(graph.edges())
+
+        # 各無向エッジに対して1つの帯域値を生成
+        bandwidths = {}
+        for u, v in edge_order:
+            # 帯域幅（Mbps）: 10刻みで生成（既存実装と同じ）
+            min_val = ((bw_range[0] + 9) // 10) * 10
+            max_val = (bw_range[1] // 10) * 10
             random_value = random.randint(min_val // 10, max_val // 10)
             bandwidth = random_value * 10
 
+            # 双方向で同じ帯域値を使用（有向グラフの場合）
+            bandwidths[(u, v)] = bandwidth
+            bandwidths[(v, u)] = bandwidth
+
+        # 【遅延の生成】帯域幅の乱数消費後に、別のシードで生成
+        current_state = random.getstate()
+        delay_seed = hash(str(current_state[1][:10])) % (2**32)
+        delay_rng = random.Random(delay_seed)
+        delays = {}
+
+        for u, v in edge_order:
+            base_delay = delay_rng.randint(int(delay_range[0]), int(delay_range[1]))
+            # 双方向で同じ遅延値を使用
+            delays[(u, v)] = base_delay
+            delays[(v, u)] = base_delay
+
+        # 属性を設定
+        for u, v in graph.edges():
+            bandwidth = bandwidths[(u, v)]
             graph.edges[u, v]["bandwidth"] = float(bandwidth)
+            graph.edges[u, v]["weight"] = float(
+                bandwidth
+            )  # 既存実装互換（weight属性も設定）
             graph.edges[u, v]["original_bandwidth"] = float(bandwidth)  # 変動の基準値
 
-            # 遅延（ms）: 1刻みで生成（1, 2, 3, ..., 10）
-            base_delay = random.randint(int(delay_range[0]), int(delay_range[1]))
+            base_delay = delays[(u, v)]
             graph.edges[u, v]["delay"] = float(base_delay)
             graph.edges[u, v]["original_delay"] = float(base_delay)
 

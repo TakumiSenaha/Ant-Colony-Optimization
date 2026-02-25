@@ -253,8 +253,8 @@ def main():
         Path(args.output) if args.output else csv_path.parent / f"{args.metric}.svg"
     )
     ylabel_map = {
-        "optimal_rate": "Optimal Solution Ratio [%]",
-        "unique_optimal_rate": "Unique Optimal Solution Ratio [%]",
+        "optimal_rate": "Optimal Path Selection Rate [%]",
+        "unique_optimal_rate": "Unique Optimal Path Selection Rate [%]",
         # 品質スコア: 導出ボトルネック帯域 / 最適ボトルネック帯域
         "avg_quality": "Derived Bottleneck / Optimal Bottleneck",
         "max_quality": "Derived Bottleneck / Optimal Bottleneck",

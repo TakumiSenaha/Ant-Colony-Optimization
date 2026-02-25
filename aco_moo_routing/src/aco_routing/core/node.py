@@ -102,7 +102,9 @@ class NodeLearning:
         self.bandwidth_buffer.append(bottleneck)
         # バッファ内の最大値を取得（帯域は大きいほど良い）
         time_window_max = max(self.bandwidth_buffer) if self.bandwidth_buffer else 0.0
-        # 帯域は10Mbps刻みなので整数として扱う
+        # 【既存実装との互換性】既存実装ではintとして保存されているため、intとして保存
+        # ただし、float型の属性として保持するため、float(int(...))として保存
+        # 既存実装: graph.nodes[node]["best_known_bottleneck"] = int(time_window_max)
         self.bkb = float(int(time_window_max))
         return self.bkb > old_bkb
 
@@ -196,13 +198,25 @@ class NodeLearning:
 
         これにより、古い学習値が自動的に忘却され、新しい環境に適応できる。
 
+        【既存実装との互換性】
+        既存実装（src/bkb_learning.py）では、evaporation_rateが残存率（0.999）として
+        直接使用されています。新実装でも同じように、残存率として扱います。
+
         Args:
             evaporation_rate: 揮発率（0.0 ~ 1.0）
+                             既存実装では残存率（0.999）として使用されているため、
+                             新実装では揮発率（0.001）から残存率（0.999）に変換して使用
         """
+        # 【既存実装との互換性】残存率として扱う
+        # 既存実装: evaporation_rate = 0.999（残存率）
+        # 新実装: evaporation_rate = 0.001（揮発率）→ 残存率 = 1 - 0.001 = 0.999
+        retention_rate = 1.0 - evaporation_rate  # 残存率に変換
+
         # BKBは揮発により減少（悪化方向）
         # 帯域のみ最適化：帯域の最大値
         # 遅延制約が有効：bandwidth/delayスコアの最大値
-        self.bkb = self.bkb * (1.0 - evaporation_rate)
+        # 既存実装と同じ: new_value = old_value * retention_rate
+        self.bkb = self.bkb * retention_rate
 
         # BLDとBKHは揮発により増加（悪化方向、忘却）
         if self.bld != float("inf"):

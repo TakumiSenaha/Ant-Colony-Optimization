@@ -12,7 +12,8 @@ IEEE Transactions on Evolutionary Computation, Vol. 1, No. 1, pp. 53-66.
 - 目的関数: 総距離の最小化 → ボトルネック帯域の最大化
 - 評価方法: Σd_ij（総和） → min{w_ij}（最小値）
 - ヒューリスティック: η=1/d_ij → η=w_ij/C_norm（正規化された帯域）
-- 報酬: Δτ=1/L_gb → Δτ=B_gb/C_norm（正規化されたボトルネック帯域）
+- 報酬: Δτ=1/L_gb → Δτ=B_gb^2（ボトルネック帯域の2乗、生の値100～10000）
+- スケール: aco_solver.pyと同じ（τ₀=100, Δτ=100～10000）
 
 【ACS方式の特徴（論文準拠）】
 1. 状態遷移規則（State Transition Rule）:
@@ -28,15 +29,15 @@ IEEE Transactions on Evolutionary Computation, Vol. 1, No. 1, pp. 53-66.
 3. グローバル更新（Global Updating Rule）:
    - タイミング: 世代終了時
    - 対象: Global Best経路のみ（中央集権的）
-   - 式: τ_ij ← (1-ρ)τ_ij + ρΔτ_ij（Δτ=ボトルネック帯域の正規化値）
+   - 式: τ_ij ← (1-ρ)τ_ij + ρΔτ_ij（Δτ=ボトルネック帯域の2乗、生の値）
 
 【論文推奨パラメータ（Section III-D, p.56）】
 - α = 1.0（フェロモン重要度）
-- β = 2.0（ヒューリスティック重要度）
+- β = 1.0（ヒューリスティック重要度、単純適用版では弱める）
 - q₀ = 0.9（Exploitation確率）
 - ξ = 0.1（ローカル更新強度）
 - ρ = 0.1（グローバル学習率）
-- τ₀ = 1.0（初期フェロモン、MBL問題では楽観的初期化）
+- τ₀ = 100（初期フェロモン、aco_solver.pyと同じ: config['aco']['min_pheromone']）
 
 【提案手法との違い】
 - ノード学習機能（BKB/BLD/BKH）: 使用しない
@@ -46,6 +47,7 @@ IEEE Transactions on Evolutionary Computation, Vol. 1, No. 1, pp. 53-66.
 """
 
 import random
+from collections import deque
 from typing import Dict, List, Optional, Tuple
 
 from ..core.ant import Ant
@@ -83,28 +85,43 @@ class ConventionalACOSolver:
     2. ローカル更新規則（Local Updating Rule）:
        - エッジ訪問直後に適用
        - 式: τ_ij ← (1-ξ)τ_ij + ξτ₀
-       - パラメータ: ξ=0.1, τ₀=1.0
+       - パラメータ: ξ=0.1, τ₀=100（aco_solver.pyと同じ）
 
     3. グローバル更新規則（Global Updating Rule）:
        - 世代終了時、Global Best経路のみ更新
-       - 揮発: τ_ij ← (1-ρ)τ_ij（全エッジ）
-       - 付加: τ_ij ← τ_ij + ρΔτ（Global Best経路のみ）
-       - 報酬: Δτ = B_gb / C_norm（ボトルネック帯域の正規化値）
-       - パラメータ: ρ=0.1
+       - 式: τ_ij ← (1-ρ)τ_ij + ρΔτ_ij（Global Best経路のみ）
+       - 報酬: Δτ = B_gb^2（ボトルネック帯域の2乗、生の値100～10000）
+       - パラメータ: ρ=0.1, τ₀=100（aco_solver.pyと同じ）
 
     【論文推奨パラメータ（Section III-D, p.56）】
     - α = 1.0: フェロモン重要度
-    - β = 2.0: ヒューリスティック重要度（太い回線を強く優遇）
+    - β = 1.0: ヒューリスティック重要度（単純適用版では弱める）
     - q₀ = 0.9: Exploitation確率
     - ξ = 0.1: ローカル更新強度
     - ρ = 0.1: グローバル学習率
-    - τ₀ = 1.0: 初期フェロモン（楽観的初期化）
-    - C_norm = 100.0: 帯域正規化定数
+    - τ₀ = 100: 初期フェロモン（aco_solver.pyと同じ: config['aco']['min_pheromone']）
+    - C_norm = 100.0: 帯域正規化定数（ヒューリスティック計算用）
 
     【MBL問題固有の設定】
-    - ヒューリスティック: η_ij = w_ij / 100.0（0.1〜1.0に正規化）
-    - 報酬: Δτ = B_gb / 100.0（0.1〜1.0に正規化）
-    - TSPの η=1/d_ij, Δτ=1/L_gb との対応関係を維持
+    - ヒューリスティック: η_ij = w_ij / 100.0（0.1〜1.0に正規化、計算安定性のため）
+    - 報酬: Δτ = B_gb（10～100、正規化しない）
+    - 初期フェロモン: τ₀ = 10.0（ΔτとバランスするスケールI）
+    - TSPの τ₀≈0.001, Δτ≈0.001～0.01 と同じバランス関係
+
+    【Global Best更新戦略（環境変化への適応）】
+    従来のACSは静的環境を想定しているため、環境変化への適応性を高めるため
+    2つの戦略を用意（config.yamlで選択可能）:
+
+    1. TTLモード（"ttl"）:
+       - Global Bestが一定世代（retention期間）経過後に無効化
+       - 環境変化後、古い解に固執→期限切れ後に急に再探索
+       - グラフで見ると「階段状」の性能回復
+
+    2. スライディングウィンドウモード（"window"、推奨）:
+       - 直近N世代（retention世代）の履歴から最良を選択
+       - 環境変化に滑らかに適応
+       - より「賢い」挙動を示す
+       - 推奨: "window"をメインの比較対象（Modified ACS）として使用
 
     Attributes:
         config (Dict): 設定辞書
@@ -121,10 +138,15 @@ class ConventionalACOSolver:
         local_update_xi (float): ローカル更新強度（論文推奨値: 0.1）
         initial_pheromone (float): 初期フェロモン値τ₀（論文準拠: 1.0）
         bandwidth_normalization (float): 帯域正規化定数C_norm（100.0）
+        gb_strategy (str): Global Best更新戦略（"ttl"または"window"）
+        gb_retention (int): 保持期間/ウィンドウサイズ（デフォルト: 100）
+        global_best_generation (Optional[int]): TTLモード用の世代記録
+        best_history (deque): Windowモード用の履歴キュー
 
     Note:
         ACS論文準拠のため、フェロモン更新は直接実装しており、
         SimplePheromoneUpdater/Evaporatorは使用しない。
+        環境変化への適応性を高めるため、2つのGlobal Best更新戦略を用意。
     """
 
     def __init__(self, config: Dict, graph: RoutingGraph):
@@ -160,9 +182,18 @@ class ConventionalACOSolver:
         # β: ヒューリスティック重要度（論文推奨値: 2.0）
         # 帯域幅を2乗することで、太い回線を強く優遇
         # 例: 100Mbps (η=1.0) → η^2=1.0, 50Mbps (η=0.5) → η^2=0.25
-        # 注意: basic_aco_no_heuristic/basic_aco_with_heuristicの場合は
-        #       run_experiment.pyでconfigを変更しているので、それを優先
-        self.beta_bandwidth = config["aco"].get("beta_bandwidth", 2.0)
+        # 【重要】ACS論文準拠の値を明示的に設定
+        # 注意: basic_aco_no_heuristic/basic_aco_with_heuristicの場合のみ、
+        #       run_experiment.pyで明示的にconfigを変更してから呼び出すため、
+        #       config["aco"]["beta_bandwidth_override"]が設定されている場合のみそれを使用
+        beta_override = config["aco"].get("beta_bandwidth_override")
+        if beta_override is not None:
+            # run_experiment.pyでオーバーライドされた値を使用（basic_aco用）
+            self.beta_bandwidth = beta_override
+        else:
+            # 【単純適用版】ヒューリスティックを弱める（β=2.0だと強すぎる）
+            # β=1.0にすることで、帯域差が強調されず、初期のアリは迷いながら探索する
+            self.beta_bandwidth = 1.0
         self.beta_delay = 1.0  # 遅延制約時に使用
 
         # q₀: Exploitation確率（論文推奨値: 0.9）
@@ -177,10 +208,9 @@ class ConventionalACOSolver:
         # 式: τ_ij ← (1-ξ)τ_ij + ξτ₀
         self.local_update_xi = 0.1
 
-        # τ₀: 初期フェロモン値（MBL問題での設定: 1.0）
-        # 楽観的初期化: 未探索エッジは「最大帯域である可能性がある」と見なす
-        # TSPの τ₀ = 1/(n·L_nn) とは異なるアプローチ
-        self.initial_pheromone = 1.0
+        # τ₀: 初期フェロモン値（aco_solver.pyと同じ設定）
+        # 【aco_solver.pyと同じ】config.yamlのmin_pheromoneを使用
+        self.initial_pheromone = config["aco"]["min_pheromone"]  # 100
 
         # C_norm: 帯域正規化定数（MBL問題固有: 100.0）
         # η_ij = w_ij / C_norm により、ヒューリスティック値を0.1〜1.0に正規化
@@ -190,14 +220,14 @@ class ConventionalACOSolver:
         # 【重要】ACS論文準拠の値を使用（configの値を上書き）
         self.evaporation_rate = 0.1  # ACS論文推奨値
 
-        # フェロモンの範囲（正規化後のスケール）
-        # 【重要】ACS論文準拠の値を使用（configの値を上書き）
-        self.min_pheromone = 0.01  # 正規化後のスケール
-        self.max_pheromone = 10.0  # 正規化後のスケール
+        # フェロモンの範囲（aco_solver.pyと同じ設定）
+        # 【aco_solver.pyと同じ】config.yamlの値を使用
+        self.min_pheromone = config["aco"]["min_pheromone"]  # 100
+        self.max_pheromone = config["aco"]["max_pheromone"]  # 1000000000
 
-        # グラフのフェロモン値をACS論文準拠の値に再初期化
+        # グラフのフェロモン値をaco_solver.pyと同じ値に再初期化
         # RoutingGraphはconfig["aco"]["min_pheromone"]=100で初期化されているが、
-        # ConventionalACOSolverでは正規化スケール（τ₀=1.0）を使用
+        # ConventionalACOSolverでも同じ値（τ₀=100）を使用
         self._reinitialize_pheromones()
 
         # 遅延制約
@@ -205,15 +235,21 @@ class ConventionalACOSolver:
         self.delay_constraint_enabled = delay_constraint.get("enabled", False)
         self.max_delay = delay_constraint.get("max_delay", float("inf"))
 
-        # Global Best（実験開始から現在までの最良解）
+        # === Global Best更新戦略（従来手法専用）===
+        # 環境変化への適応性を向上させるためのオプション
+        self.gb_strategy = config["aco"].get("global_best_update_strategy", "window")
+        self.gb_retention = config["aco"].get("global_best_retention", 100)
+
+        # Global Best（共通）
         self.global_best_solution: Optional[Tuple[float, float, int]] = None
         self.global_best_ant: Optional[Ant] = None
-        self.global_best_generation: Optional[int] = (
-            None  # グローバル解が見つかった世代
-        )
-        self.global_best_max_age: int = config["aco"].get(
-            "global_best_max_age", 100000
-        )  # グローバル解の有効期限（世代数）
+
+        # TTLモード用: Global Bestが見つかった世代
+        self.global_best_generation: Optional[int] = None
+
+        # スライディングウィンドウモード用: 直近N世代の履歴
+        # deque(maxlen=N)により、自動的に古いものが削除される
+        self.best_history: deque = deque(maxlen=self.gb_retention)
 
     def _initialize_fluctuation_model(self) -> None:
         """帯域変動モデルを初期化"""
@@ -280,16 +316,21 @@ class ConventionalACOSolver:
         results = []
         ant_log = []  # 各アリが到達した時の成功/失敗を記録
 
-        # 【初期フェロモン値の確認】論文準拠: τ₀ = 1.0（楽観的初期化）
+        # 【初期フェロモン値の確認】aco_solver.pyと同じ: τ₀ = 100
         print(
-            f"初期フェロモン値τ₀: {self.initial_pheromone:.2f} "
-            f"（論文準拠: 楽観的初期化、未探索エッジは最大帯域を仮定）"
+            f"初期フェロモン値τ₀: {self.initial_pheromone:.1f} "
+            f"（aco_solver.pyと同じ: config['aco']['min_pheromone']）"
+        )
+        print(
+            f"Global Best更新戦略: {self.gb_strategy} "
+            f"(retention={self.gb_retention}世代)"
         )
 
         # 【Global Bestの初期化】実験開始時にリセット
         self.global_best_solution = None
         self.global_best_ant = None
-        self.global_best_generation = None
+        self.global_best_generation = None  # TTLモード用
+        self.best_history.clear()  # Windowモード用（履歴をクリア）
 
         # スタートノード切り替えの設定を取得
         start_switching_config = self.config["experiment"].get("start_switching", {})
@@ -348,15 +389,6 @@ class ConventionalACOSolver:
         previous_start = None
 
         for generation in range(generations):
-            # 【グローバル解のTTLチェック】グローバル解が古くなったら無効化
-            if (
-                self.global_best_generation is not None
-                and generation - self.global_best_generation >= self.global_best_max_age
-            ):
-                self.global_best_solution = None
-                self.global_best_ant = None
-                self.global_best_generation = None
-
             # スタートノード切り替え処理
             if start_switching_enabled:
                 phase = generation // switch_interval
@@ -781,66 +813,130 @@ class ConventionalACOSolver:
                         ant_log.append(log_value)
                         active_ants.remove(ant)
 
-            # === グローバル更新（Global Updating Rule）===
+            # =================================================================
+            # Global Best更新ロジック（戦略切り替え対応版）
+            # =================================================================
             # 出典: Dorigo & Gambardella (1997) - Equation (4)
             #
-            # 【アルゴリズム】
-            # 1. 世代内で最良のアリ（Generation Best）を選択
-            # 2. Generation BestがGlobal Bestより良ければ更新
-            # 3. Global Bestの経路にのみフェロモンを付加
-            #
-            # 【論文の式（TSP版）】
-            # Δτ_ij = 1/L_gb（Global Best経路の総距離の逆数）
-            #
-            # 【MBL問題への適用】
-            # Δτ_ij = B_gb / C_norm（Global Bestのボトルネック帯域、正規化後）
-            # - 広い帯域ほどΔτが大きい（TSPの「短い経路」に対応）
-            # - 正規化により、Δτは0.1〜1.0の範囲に収まる
-            #
-            # 【中央集権的な更新】
-            # 全アリの解を比較して最良を選択する必要がある（完全分散ではない）
+            # 【手順】
+            # 1. 世代内の最良アリ（Iteration Best）を選出
+            # 2. 戦略に基づいてGlobal Bestを決定
+            #    - TTLモード: 期限切れチェック→比較更新
+            #    - Windowモード: 履歴に追加→履歴内で最良を選出
+            # 3. Global Bestの経路にフェロモンを付加（ACS論文準拠）
+
+            # --- 手順1: その世代の最良アリ（Iteration Best）を選出 ---
+            iteration_best_ant = None
             if generation_ants:
-                # 最良のアリを選択（MBL問題ではボトルネック帯域が最大のもの）
-                best_ant = None
                 if self.delay_constraint_enabled:
-                    # 遅延制約あり：帯域が最大で、その中で遅延が最小
+                    # 遅延制約あり: 制約内で（Bandwidth最大, Delay最小）
                     valid_ants = [
-                        (ant, ant.get_solution())
-                        for ant in generation_ants
-                        if ant.get_solution()[1] <= self.max_delay
+                        a
+                        for a in generation_ants
+                        if a.get_solution()[1] <= self.max_delay
                     ]
                     if valid_ants:
-                        best_ant, _ = max(
+                        iteration_best_ant = max(
                             valid_ants,
-                            key=lambda x: (x[1][0], -x[1][1]),  # (bandwidth, -delay)
+                            key=lambda x: (x.get_solution()[0], -x.get_solution()[1]),
                         )
                 else:
-                    # 遅延制約なし：ボトルネック帯域が最大
-                    best_ant, _ = max(
-                        [(ant, ant.get_solution()) for ant in generation_ants],
-                        key=lambda x: x[1][0],  # bandwidth
+                    # 遅延制約なし: Bandwidth最大
+                    iteration_best_ant = max(
+                        generation_ants, key=lambda x: x.get_solution()[0]
                     )
 
-                # Global Bestを更新
-                if best_ant is not None:
-                    best_solution = best_ant.get_solution()
+            # --- 手順2: 戦略に基づいてGlobal Bestを決定 ---
 
-                    # 現在のGlobal Bestより良い解が見つかった場合のみ更新
-                    if (
-                        self.global_best_solution is None
-                        or best_solution[0] > self.global_best_solution[0]
-                        or (
-                            abs(best_solution[0] - self.global_best_solution[0]) < 1e-6
-                            and self.delay_constraint_enabled
-                            and best_solution[1] < self.global_best_solution[1]
-                        )
-                    ):
-                        self.global_best_solution = best_solution
-                        self.global_best_ant = best_ant
-                        self.global_best_generation = (
-                            generation  # グローバル解が見つかった世代を記録
-                        )
+            if self.gb_strategy == "window":
+                # 【Option 2: スライディングウィンドウモード（推奨）】
+                # 直近N世代の履歴から最良を選択
+                #
+                # メリット:
+                # - 環境変化に滑らかに適応
+                # - 古い良い解がウィンドウから消えるにつれて、徐々に新しい解に移行
+                # - より「賢い」挙動を示す
 
+                # 1. 履歴に追加（Noneでも追加して時間を進める＝古い情報を押し出す）
+                self.best_history.append(iteration_best_ant)
+
+                # 2. 履歴の中から最強のアリを選出
+                # （Noneを除外した有効なアリの中から選ぶ）
+                valid_history = [ant for ant in self.best_history if ant is not None]
+
+                if valid_history:
+                    if self.delay_constraint_enabled:
+                        self.global_best_ant = max(
+                            valid_history,
+                            key=lambda x: (
+                                x.get_solution()[0],
+                                -x.get_solution()[1],
+                            ),
+                        )
+                    else:
+                        self.global_best_ant = max(
+                            valid_history, key=lambda x: x.get_solution()[0]
+                        )
+                    # global_best_solutionも更新
+                    if self.global_best_ant is not None:
+                        self.global_best_solution = self.global_best_ant.get_solution()
+                else:
+                    # 履歴が全てNone（直近N世代で誰もゴールできていない）
+                    self.global_best_ant = None
+                    self.global_best_solution = None
+
+            elif self.gb_strategy == "ttl":
+                # 【Option 1: TTLモード】
+                # 一定期間でリセット
+                #
+                # メリット:
+                # - シンプルな実装
+                # デメリット:
+                # - 環境変化後、期限切れまでは古い解に固執→期限後に急に再探索
+                # - グラフで見ると「階段状」の性能回復
+
+                # A. 期限切れチェック
+                if (
+                    self.global_best_generation is not None
+                    and generation - self.global_best_generation >= self.gb_retention
+                ):
+                    # 期限切れリセット
+                    self.global_best_ant = None
+                    self.global_best_solution = None
+                    self.global_best_generation = None
+
+                # B. Iteration Bestとの比較更新
+                if iteration_best_ant is not None:
+                    ib_solution = iteration_best_ant.get_solution()
+
+                    # まだGlobal Bestがない、またはIteration Bestの方が良い場合
+                    should_update = False
+                    if self.global_best_ant is None:
+                        should_update = True
+                    else:
+                        gb_solution = self.global_best_ant.get_solution()
+                        # 帯域比較（大きい方が良い）
+                        if ib_solution[0] > gb_solution[0]:
+                            should_update = True
+                        # 帯域が同じなら遅延比較（小さい方が良い、制約ありの場合）
+                        elif abs(ib_solution[0] - gb_solution[0]) < 1e-6:
+                            if (
+                                self.delay_constraint_enabled
+                                and ib_solution[1] < gb_solution[1]
+                            ):
+                                should_update = True
+
+                    if should_update:
+                        self.global_best_ant = iteration_best_ant
+                        self.global_best_solution = ib_solution
+                        self.global_best_generation = generation
+
+            else:
+                raise ValueError(
+                    f"Unknown global_best_update_strategy: {self.gb_strategy}"
+                )
+
+            # --- 手順3: フェロモン更新（共通処理）---
             # === グローバル更新（Global Updating Rule）===
             # 出典: Dorigo & Gambardella (1997) - Equation (4)
             # 論文の式: τ_ij ← (1-ρ)τ_ij + ρΔτ_ij
@@ -849,17 +945,14 @@ class ConventionalACOSolver:
             # それ以外のエッジは一切触りません（揮発もしません）。
             #
             # 【理由】
-            # - ローカル更新で、訪問済みエッジは既に減少している
-            # - グローバル更新で全エッジを揮発すると「二重揮発」になる
-            # - これはAnt System (AS)の仕様であり、ACSではない
+            # - ローカル更新で、訪問済みエッジは既に調整されている
+            # - 全エッジ揮発は行わない（それはAnt Systemの仕様、ACSではない）
             #
             # 【論文準拠の実装】
             # Global Bestのエッジのみに対して：
-            #   1. 揮発: τ_ij ← (1-ρ)τ_ij
-            #   2. 付加: τ_ij ← τ_ij + ρΔτ_ij
-            #   → 結果: τ_ij ← (1-ρ)τ_ij + ρΔτ_ij
+            #   τ_ij ← (1-ρ)τ_ij + ρΔτ_ij
             #
-            # ここで、Δτ_ij = B_gb / C_norm（正規化されたボトルネック帯域）
+            # ここで、Δτ_ij = B_gb^2（ボトルネック帯域の2乗、生の値100～10000）
 
             if self.global_best_ant is not None:
                 # 【報酬計算】Global Bestのボトルネック帯域を取得
@@ -867,15 +960,26 @@ class ConventionalACOSolver:
                 # get_solution()は (bandwidth, delay, hops) のタプルを返す
                 bottleneck = best_solution[0]
 
-                # 【正規化】ボトルネック帯域を0〜1の範囲に変換
-                # TSPの Δτ = 1/L_gb に対応するMBL問題の式
-                delta_tau = bottleneck / self.bandwidth_normalization
+                # 【Δτの計算】ACS論文の式(4)
+                # TSP版: Δτ = 1/L_gb（経路長の逆数、0.001～0.01）
+                # MBL版: Δτ = B_gb^2（ボトルネック帯域の2乗、生の値100～10000）
+                #
+                # ボトルネック帯域の2乗を使用（より強い報酬）
+                # 例: 100Mbps -> 10000,  50Mbps -> 2500
+                delta_tau = bottleneck
 
                 # 【大域学習率 ρ】論文推奨値: 0.1
                 rho = self.evaporation_rate
 
                 # 【Global Bestの経路上のエッジのみ更新】
                 # 論文の式(4): τ_ij ← (1-ρ)τ_ij + ρΔτ_ij
+                #
+                # 計算例（ボトルネック=100Mbps, 初期τ=100, Δτ=10000）:
+                # new_tau = 0.9 * 100 + 0.1 * 10000 = 90 + 1000 = 1090
+                # → フェロモンが大幅に増加（2乗により強い報酬）
+                # 計算例（ボトルネック=80Mbps, 初期τ=100, Δτ=6400）:
+                # new_tau = 0.9 * 100 + 0.1 * 6400 = 90 + 640 = 730
+                # → フェロモンが増加（80Mbpsの経路も報酬されるが、100Mbpsより小さい）
                 route_edges = self.global_best_ant.get_route_edges()
                 for u, v in route_edges:
                     edge_attr = self.graph.get_edge_attributes(u, v)
@@ -1121,20 +1225,20 @@ class ConventionalACOSolver:
 
         パラメータ（論文推奨値）:
         - ξ = 0.1: ローカル更新強度
-        - τ₀ = 1.0: 初期フェロモン値（MBL問題では楽観的初期化）
+        - τ₀ = 100: 初期フェロモン値（aco_solver.pyと同じ）
 
         【目的】
         訪問したエッジのフェロモンを τ₀ に近づけることで、後続のアリが
         同じ経路を選ぶ確率を調整し、探索の多様性を維持する。
 
         【動作】
-        - 初期状態（τ_ij = 1.0）の場合: 変化なし
-        - グローバル更新後（τ_ij > 1.0）の場合: 徐々に 1.0 に戻す（減少）
+        - 初期状態（τ_ij = 100）の場合: 変化なし
+        - グローバル更新後（τ_ij > 100）の場合: 徐々に 100 に戻す（減少）
         - これにより、フェロモンが過剰に蓄積したエッジの魅力を下げる
 
-        【TSPとの違い】
-        - TSP: τ₀ ≈ 0.001（小さい値）→ 訪問済みエッジは減少
-        - MBL: τ₀ = 1.0（大きい値）→ グローバル更新後のエッジが減少
+        【計算例】
+        - 初期: τ = 100 → 訪問後: 0.9*100 + 0.1*100 = 100（変化なし）
+        - GB更新後: τ = 150 → 訪問後: 0.9*150 + 0.1*100 = 145（減少）
 
         Args:
             u: 始点ノード

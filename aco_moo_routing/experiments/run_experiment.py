@@ -107,6 +107,77 @@ def print_run_summary(
     print("=" * 80)
 
 
+def recalculate_pheromone_min_max_for_manual_environment(
+    graph: RoutingGraph,
+    optimal_path: list,
+    aco_solver,
+    aco_method: str,
+    config: dict,
+) -> None:
+    """
+    manual環境で最適経路のフェロモンmin/maxを再計算
+
+    ACOSolver初期化後に呼び出す必要がある（ConventionalACOSolverが_reinitialize_pheromones()を呼ぶため）
+
+    Args:
+        graph: ルーティンググラフ
+        optimal_path: 最適経路
+        aco_solver: 初期化されたACOソルバー
+        aco_method: ACO手法名
+        config: 設定辞書
+    """
+    print("\n=== Recalculating pheromone min/max for manual environment ===")
+
+    # ACO手法に応じて適切なmin_pheromone値を取得
+    if aco_method in [
+        "conventional",
+        "basic_aco_no_heuristic",
+        "basic_aco_with_heuristic",
+    ]:
+        # ConventionalACOSolverは正規化スケール（min=0.01, max=10.0）を使用
+        # manual環境でも正規化スケールを維持（帯域100Mbps → η=1.0）
+        base_min_pheromone = aco_solver.min_pheromone
+        use_normalized_scale = True
+    else:
+        # 提案手法・先行研究はconfigの値を使用
+        base_min_pheromone = config["aco"]["min_pheromone"]
+        use_normalized_scale = False
+
+    for u, v in zip(optimal_path[:-1], optimal_path[1:]):
+        # min_pheromone: 次数（degree）に基づいて計算（双方向で異なる）
+        degree_u = len(list(graph.graph.neighbors(u)))
+        degree_v = len(list(graph.graph.neighbors(v)))
+
+        if use_normalized_scale:
+            # ConventionalACOSolver: 正規化スケール（固定値）
+            graph.graph.edges[u, v]["min_pheromone"] = aco_solver.min_pheromone
+            graph.graph.edges[v, u]["min_pheromone"] = aco_solver.min_pheromone
+            graph.graph.edges[u, v]["max_pheromone"] = aco_solver.max_pheromone
+            graph.graph.edges[v, u]["max_pheromone"] = aco_solver.max_pheromone
+        else:
+            # 提案手法・先行研究: 次数と帯域に基づいて計算
+            graph.graph.edges[u, v]["min_pheromone"] = (
+                base_min_pheromone * 3 // degree_u
+            )
+            graph.graph.edges[v, u]["min_pheromone"] = (
+                base_min_pheromone * 3 // degree_v
+            )
+            # max_pheromone: 帯域幅の5乗（100^5 = 10,000,000,000）
+            graph.graph.edges[u, v]["max_pheromone"] = int(100.0**5)
+            graph.graph.edges[v, u]["max_pheromone"] = int(100.0**5)
+
+        # デバッグ出力（最初のエッジのみ）
+        if u == optimal_path[0]:
+            print(
+                f"  Edge ({u} → {v}): "
+                f"min={graph.graph.edges[u, v]['min_pheromone']}, "
+                f"max={graph.graph.edges[u, v]['max_pheromone']}"
+            )
+
+    print(f"Recalculated pheromone min/max for {len(optimal_path)-1} edges")
+    print("=========================================================\n")
+
+
 def compute_optimal_solutions(
     config: dict, graph: RoutingGraph, start_node: int, goal_node: int
 ) -> list:
@@ -361,18 +432,22 @@ def run_single_simulation(
         else:
             print(f"Retry {retry_count}: Start: {start_node}, Goal: {goal_node}")
 
-        # 手動設定トポロジ（Environment 1）の場合、最適経路を100Mbpsに設定
+        # 手動設定トポロジ（Environment 1）の場合、最適経路の帯域を100Mbpsに設定
+        # 注意: フェロモン関連の設定はACOSolver初期化後に行う（ConventionalACOSolverが_reinitialize_pheromones()を呼ぶため）
         graph_type = config["graph"]["graph_type"]
+        optimal_path_for_manual = None
         if graph_type == "manual":
             try:
-                # 最適経路を見つける
-                optimal_path = max_load_path(
+                # 最適経路を見つける（後でフェロモン設定に使用）
+                optimal_path_for_manual = max_load_path(
                     graph.graph, start_node, goal_node, weight="bandwidth"
                 )
-                print(f"Optimal path: {' -> '.join(map(str, optimal_path))}")
+                print(f"Optimal path: {' -> '.join(map(str, optimal_path_for_manual))}")
 
                 # 最適経路の各エッジの帯域幅を100Mbpsに設定（双方向）
-                for u, v in zip(optimal_path[:-1], optimal_path[1:]):
+                for u, v in zip(
+                    optimal_path_for_manual[:-1], optimal_path_for_manual[1:]
+                ):
                     graph.graph.edges[u, v]["bandwidth"] = 100.0
                     graph.graph.edges[v, u]["bandwidth"] = 100.0
                     graph.graph.edges[u, v]["original_bandwidth"] = 100.0
@@ -385,6 +460,9 @@ def run_single_simulation(
                     print(f"Set optimal path edge ({u} → {v}) to bandwidth=100 Mbps")
 
                 print("Optimal path bandwidth set to 100 Mbps")
+                print(
+                    "(Pheromone min/max will be recalculated after ACO solver initialization)"
+                )
             except Exception as e:
                 print(f"⚠️  Warning: Could not set optimal path: {e}")
                 # 最適経路が見つからない場合は再生成
@@ -439,14 +517,14 @@ def run_single_simulation(
     elif aco_method == "basic_aco_no_heuristic":
         # 従来手法1：基本ACO（ヒューリスティックなし）
         print("Running Basic ACO w/o Heuristic (β=0)...")
-        # beta_bandwidthを強制的に0に設定
-        config["aco"]["beta_bandwidth"] = 0
+        # beta_bandwidthを強制的に0に設定（オーバーライド）
+        config["aco"]["beta_bandwidth_override"] = 0
         aco_solver = ConventionalACOSolver(config, graph)
     elif aco_method == "basic_aco_with_heuristic":
         # 従来手法2：基本ACO（ヒューリスティックあり）
         print("Running Basic ACO w/ Heuristic (β=1)...")
-        # beta_bandwidthを強制的に1に設定
-        config["aco"]["beta_bandwidth"] = 1
+        # beta_bandwidthを強制的に1に設定（オーバーライド）
+        config["aco"]["beta_bandwidth_override"] = 1
         aco_solver = ConventionalACOSolver(config, graph)
     elif aco_method == "previous":
         # 先行研究（Previous Method）：エッジベースの学習
@@ -455,6 +533,14 @@ def run_single_simulation(
     else:
         print("Running Proposed ACO (with BKB/BLD/BKH learning)...")
         aco_solver = ACOSolver(config, graph)
+
+    # 【重要】manual環境の場合、ACOSolver初期化後にフェロモンmin/maxを再計算
+    # ConventionalACOSolverは_reinitialize_pheromones()で全エッジを上書きするため、
+    # ACOSolver初期化の後に最適経路のフェロモンmin/maxを設定し直す必要がある
+    if graph_type == "manual" and optimal_path_for_manual is not None:
+        recalculate_pheromone_min_max_for_manual_environment(
+            graph, optimal_path_for_manual, aco_solver, aco_method, config
+        )
 
     # ACOを実行
     results, ant_logs = aco_solver.run(
@@ -482,6 +568,42 @@ def run_single_simulation(
         f"ACO Solutions (final 100 generations): {len(final_solutions)} unique solutions"
     )
 
+    # 評価指標を計算するためのヘルパー関数を定義
+    def match_optimal_local(
+        solution, optimal_solutions_list, delay_constraint_on=False, max_delay=None
+    ):
+        """
+        最適解判定
+        - 帯域のみ最適化: 最適ボトルネック帯域以上なら一致
+        - 遅延制約あり    : 帯域が最適以上 かつ 遅延が max_delay 以下なら一致
+        """
+        if not optimal_solutions_list:
+            return -1
+        b, d, h = solution
+        for idx, (opt_b, opt_d, opt_h) in enumerate(optimal_solutions_list):
+            bw_tol = max(1e-6, abs(opt_b) * 1e-6)
+            if b + bw_tol < opt_b:
+                continue
+            if delay_constraint_on and max_delay is not None:
+                delay_tol = max(1e-3, abs(max_delay) * 1e-3)
+                if d > max_delay + delay_tol:
+                    continue
+            return idx
+        return -1
+
+    def quality_score_for_local(solution, optimal_solutions_list):
+        """
+        品質スコア: 最良帯域に対する比（0.0〜1.0）
+        （遅延制約ありでも帯域比でスコア化）
+        """
+        b, _, _ = solution
+        if not optimal_solutions_list:
+            return -1
+        best_b = max(opt_b for opt_b, _, _ in optimal_solutions_list)
+        if best_b <= 0:
+            return -1
+        return max(0.0, min(1.0, b / best_b))
+
     # 評価指標を計算
     pdr, dr, hv = None, None, None
     if optimal_solutions:
@@ -493,7 +615,7 @@ def run_single_simulation(
         )
         hv = metrics_calculator.calculate_hypervolume(final_solutions)
 
-        print("\nMetrics:")
+        print("\n  ---- Metrics ----")
         print(f"  Discovery Rate: {pdr:.3f}")
         print(f"  Dominance Rate: {dr:.3f}")
         print(f"  Hypervolume: {hv:.3f}")
@@ -514,16 +636,16 @@ def run_single_simulation(
             if ant_log_any_optimal
             else 0
         )
-        print(
-            f"Optimal Solution Discovery Rate (Unique): {final_success_rate_unique:.3f}"
-        )
-        print(f"Optimal Solution Discovery Rate (Any): {final_success_rate_any:.3f}")
+        print(f"\n  ---- Optimal Solution Discovery Rate ----")
+        print(f"  Unique: {final_success_rate_unique:.3f}")
+        print(f"  Any: {final_success_rate_any:.3f}")
     else:
         # 従来手法：単一のログを表示
         final_success_rate = (
             sum(1 for idx in ant_log if idx >= 0) / len(ant_log) if ant_log else 0
         )
-        print(f"Optimal Solution Discovery Rate: {final_success_rate:.3f}")
+        print(f"\n  ---- Optimal Solution Discovery Rate ----")
+        print(f"  Rate: {final_success_rate:.3f}")
 
     # 各シミュレーションごとにPCH@Kを計算
     pch_at_k = None
@@ -554,13 +676,11 @@ def run_single_simulation(
         print(f"  PCH@{k}: {pch_at_k:.2f}%")
 
         # 各シミュレーションごとにマッチログを出力
-        print(f"\n{'='*80}")
-        print(f"Path Selection Ranking (Simulation {sim + 1})")
-        print(f"{'='*80}")
+        print(f"\n  ---- Path Selection Ranking ----")
         print(
-            f"{'Rank':<6} {'Bandwidth':<12} {'Delay':<10} {'Hops':<6} {'Rate':<10} {'Count':<8} {'Match':<8}"
+            f"  {'Rank':<6} {'Bandwidth':<12} {'Delay':<10} {'Hops':<6} {'Rate':<10} {'Count':<8} {'Match':<8}"
         )
-        print("-" * 80)
+        print("  " + "-" * 76)
         for i, (path, rate, count) in enumerate(aco_ranking[:20], 1):
             b, d, h = path
             # 最適解と一致するかチェック
@@ -574,8 +694,102 @@ def run_single_simulation(
                     break
             match_status = "✓ Match" if is_optimal else "-"
             print(
-                f"{i:<6} {b:<12.0f} {d:<10.0f} {h:<6} {rate:<10.2f}% {count:<8} {match_status:<8}"
+                f"  {i:<6} {b:<12.0f} {d:<10.0f} {h:<6} {rate:<10.2f}% {count:<8} {match_status:<8}"
             )
+
+    # ===== 各世代の最良解が最適解だった確率を計算 =====
+    best_solution_optimal_rate = None
+    best_solution_quality_scores = []
+    interest_optimal_rate = None
+
+    if optimal_solutions and results:
+        # 各世代の最良解を判定
+        best_optimal_count = 0
+        interest_optimal_count = 0
+        total_generations = 0
+
+        for gen_idx, gen_result in enumerate(results):
+            solutions = gen_result.get("solutions", [])
+            gen_optimal_solutions = gen_result.get(
+                "optimal_solutions", optimal_solutions
+            )
+            if not gen_optimal_solutions:
+                gen_optimal_solutions = optimal_solutions
+
+            if solutions:
+                total_generations += 1
+                # 最良解を選択（品質スコアが最大のもの）
+                best_solution = None
+                best_quality = -1.0
+
+                for sol in solutions:
+                    qs = quality_score_for_local(sol, gen_optimal_solutions)
+                    if qs > best_quality:
+                        best_quality = qs
+                        best_solution = sol
+
+                if best_solution:
+                    best_solution_quality_scores.append(best_quality)
+                    # 最良解が最適解か判定
+                    optimal_index = match_optimal_local(
+                        best_solution,
+                        gen_optimal_solutions,
+                        delay_constraint_on=delay_constraint_enabled,
+                        max_delay=config.get("experiment", {})
+                        .get("delay_constraint", {})
+                        .get("max_delay", None),
+                    )
+                    if optimal_index >= 0:
+                        best_optimal_count += 1
+
+            # interest（フェロモン貪欲）が最適解か判定
+            interest_sol = gen_result.get("interest_solution")
+            if interest_sol:
+                optimal_index_interest = match_optimal_local(
+                    interest_sol,
+                    gen_optimal_solutions,
+                    delay_constraint_on=delay_constraint_enabled,
+                    max_delay=config.get("experiment", {})
+                    .get("delay_constraint", {})
+                    .get("max_delay", None),
+                )
+                if optimal_index_interest >= 0:
+                    interest_optimal_count += 1
+
+        # 確率を計算
+        best_solution_optimal_rate = (
+            best_optimal_count / total_generations * 100
+            if total_generations > 0
+            else 0.0
+        )
+        interest_optimal_rate = (
+            interest_optimal_count / len(results) * 100 if results else 0.0
+        )
+
+        # ===== サマリー表示 =====
+        print(f"\n  ---- Simulation Summary ----")
+        print(f"  Best Solution Optimal Rate: {best_solution_optimal_rate:.2f}%")
+        print(f"    (Percentage of generations where best solution was optimal)")
+        if best_solution_quality_scores:
+            avg_best_quality = sum(best_solution_quality_scores) / len(
+                best_solution_quality_scores
+            )
+            max_best_quality = max(best_solution_quality_scores)
+            min_best_quality = min(best_solution_quality_scores)
+            print(f"  Best Solution Quality Score:")
+            print(f"    Average: {avg_best_quality:.3f}")
+            print(f"    Maximum: {max_best_quality:.3f}")
+            print(f"    Minimum: {min_best_quality:.3f}")
+
+        print(
+            f"  Interest (Pheromone-Only Greedy) Optimal Rate: {interest_optimal_rate:.2f}%"
+        )
+        print(
+            f"    (Percentage of generations where pheromone-only greedy found optimal solution)"
+        )
+
+    # シミュレーション終了
+    print(f"\n{'='*80}")
 
     return (
         ant_log,
